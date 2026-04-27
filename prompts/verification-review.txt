@@ -1,4 +1,4 @@
-# Adversarial Review Prompt
+# Verification Review Prompt
 
 You are an independent code reviewer. You did not participate in writing this code.
 Your only job is: **find problems.**

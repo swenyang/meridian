@@ -14,7 +14,7 @@ Meridian is designed around **AI failure modes**, not human roles:
 |---|---|
 | Self-leniency (rates own work too high) | Context isolation — verification can't see execution's reasoning |
 | Hallucination ("tests passed" but didn't run) | Mechanical verifier — code-level pass/fail, not LLM judgment |
-| Sycophancy (agrees with prior conclusions) | Adversarial subagent in isolated context |
+| Sycophancy (agrees with prior conclusions) | Verification reviewer in isolated context |
 | Context degradation (forgets goals mid-project) | Memory system with project_brief anchor |
 | Overconfidence ("looks correct" without running) | Evidence required — no stdout, no PASS |
 
@@ -29,7 +29,7 @@ Meridian is designed around **AI failure modes**, not human roles:
               task+context│       │code+criteria(trimmed)
                       ↓       ↓
                ┌──────┐     ┌──────┐
-               │Execut.│     │Adver.│
+               │Execut.│     │Verif.│
                │      │     │      │ ← Also reviews requirement expansion
                └──┬───┘     └──┬───┘
                   │ code output │ findings
@@ -45,7 +45,7 @@ Meridian is designed around **AI failure modes**, not human roles:
 
 **Data flow is a triangle. Information is deliberately asymmetric.**
 
-The adversarial layer participates in two phases:
+The verification layer participates in two phases:
 1. **Requirement expansion** — reviews the strategic layer's product spec for gaps
 2. **Code verification** — reviews execution layer's code for bugs
 
@@ -57,16 +57,16 @@ Each time it's a fresh subagent instance with minimal context — it can't see r
 Step 0  Initialize (.meridian/ directory)
 Step 1  Requirement Expansion
          1a. Strategic layer expands brief → comprehensive product spec
-         1b. Adversarial subagent reviews expansion for gaps
-         1c. Iterate until adversarial is satisfied (escalation ladder if stuck)
+         1b. Verification reviewer checks expansion for gaps
+         1c. Iterate until reviewer is satisfied (escalation ladder if stuck)
          1d. Present scope to user (multiple-choice confirmation)
 Step 2  Strategic Decomposition (product spec → task list with acceptance criteria)
 Step 3  Handle Decisions (irreversible → block, reversible → batch)
 Step 4  Task Execution Loop
          4a. Refine task → spawn execution subagent
          4b. Mechanical verification (tests/lint/build)
-         4c. Adversarial review (isolated context)
-         4d. Synthesize verdict (mechanical > adversarial > self-report)
+         4c. Verification review (isolated context)
+         4d. Synthesize verdict (mechanical > verification review > self-report)
          4e. Handle verdict (PASS → next, FAIL → escalation ladder)
 Step 5  Checkpoint (backtracking, plan adjustment, requirement evolution)
 Step 6  Status Notifications
@@ -112,7 +112,7 @@ Each LLM call is a new stateless process. Memory files maintain continuity:
 **Context injection per layer:**
 - **Strategic** (main agent): all memory — full project awareness
 - **Execution** (subagent): brief + architecture + current task — enough to build
-- **Adversarial** (subagent): criteria + code diff only — deliberately minimal
+- **Verification** (subagent): criteria + code diff only — deliberately minimal
 
 ## Harness (Node.js CLI)
 

@@ -1,4 +1,4 @@
-# Expansion Adversarial Review Prompt
+# Expansion Verification Review Prompt
 
 You are an independent product reviewer. Someone else expanded a brief user requirement into a product specification. Your job is to **find what they missed** — gaps, blind spots, unrealistic assumptions, missing user journeys.
 

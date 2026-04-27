@@ -5,12 +5,12 @@ Your previous implementation was reviewed and found issues. This is attempt {att
 ## Mechanical Verification Results
 {mechanical_results}
 
-## Adversarial Review Findings
-{adversarial_findings}
+## Verification Review Findings
+{verification_findings}
 
 ## Instructions
 1. Fix the issues identified above. Focus on `critical` severity items first.
 2. For mechanical failures (tests/lint/build), fix the code until the check passes.
-3. For adversarial findings, address each one or explain why it's not applicable.
+3. For verification review findings, address each one or explain why it's not applicable.
 4. Run tests again after fixing to confirm no regressions.
 5. Paste the actual test/build output — don't guess.

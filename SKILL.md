@@ -13,7 +13,7 @@ You (the main agent reading this skill) ARE the Strategic Layer — the project 
 ## Core Principles
 
 1. **The agent that does the work never evaluates it.** Execution and verification are always separate subagents with isolated contexts.
-2. **Mechanical verdicts override LLM opinions.** Tool output > adversarial findings > self-report.
+2. **Mechanical verdicts override LLM opinions.** Tool output > verification review findings > self-report.
 3. **Minimize user interruptions.** You are the project owner — make decisions yourself whenever possible. Only involve the user for:
    - Irreversible decisions (tech stack, database, core architecture) — present immediately with options
    - Reversible decisions — batch 3+ before asking, use your recommended option in the meantime
@@ -56,14 +56,14 @@ As the strategic layer, use the `prompts/expansion.txt` template to think throug
 
 Output: a structured JSON product specification.
 
-#### 1b. Adversarial Review of Expansion
+#### 1b. Verification Review of Expansion
 
 Spawn a **general-purpose subagent** with the `prompts/expansion-review.txt` template. This subagent gets:
 - The original user requirement
 - Your expansion output
 - Nothing else (no knowledge of your reasoning process)
 
-The adversarial reviewer will find gaps, blind spots, overscoped features, and missing edge cases.
+The verification reviewer will find gaps, blind spots, overscoped features, and missing edge cases.
 
 #### 1c. Iterate Until Satisfied
 
@@ -72,7 +72,7 @@ The adversarial reviewer will find gaps, blind spots, overscoped features, and m
 If the reviewer returns `satisfied: false`:
 1. Read their gaps and suggestions
 2. Address critical/important gaps — revise or extend the expansion
-3. Spawn a new adversarial review subagent with the revised expansion
+3. Spawn a new verification review subagent with the revised expansion
 4. Repeat until `satisfied: true`
 
 If progress stalls (reviewer keeps finding new gaps after multiple rounds), apply the same escalation ladder as task execution:
@@ -201,10 +201,10 @@ If `due: true` but `immediate: false` (reversible only, batched):
 
 For each task in dependency order:
 
-#### 3a. Check if task is ready
+#### 4a. Check if task is ready
 All dependencies must be done. Check via `$HARNESS task-status --task <dep_id> --dir $MERIDIAN_DIR`.
 
-#### 3b. Refine the task
+#### 4b. Refine the task
 As the strategic layer, refine the coarse task into specific implementation instructions. Read current memory to understand what's been built:
 
 ```bash
@@ -222,7 +222,7 @@ Create a detailed execution prompt by filling in the template from `prompts/exec
 - `{dependency_summaries}`: summaries of completed dependency tasks
 - `{iteration_context}`: empty on first attempt
 
-#### 3c. Dispatch Execution Subagent
+#### 4c. Dispatch Execution Subagent
 
 Spawn a **general-purpose subagent** with the execution prompt. This subagent has its own isolated context — it cannot see the strategic layer's reasoning.
 
@@ -237,7 +237,7 @@ The subagent will:
 3. Run any available tests
 4. Report what it did
 
-#### 3d. Collect Evidence & Run Mechanical Verification
+#### 4d. Collect Evidence & Run Mechanical Verification
 
 After the execution subagent completes:
 
@@ -247,33 +247,33 @@ $HARNESS verify --dir $MERIDIAN_DIR
 
 This auto-detects and runs tests/lint/build, checks git evidence, returns a verdict JSON.
 
-#### 3e. Dispatch Verification Subagent (Adversarial Review)
+#### 4e. Dispatch Verification Reviewer
 
-Spawn another **general-purpose subagent** with the adversarial prompt. This subagent gets **minimal context** — only the code changes and acceptance criteria. It CANNOT see the execution subagent's reasoning or approach.
+Spawn another **general-purpose subagent** with the verification review prompt. This subagent gets **minimal context** — only the code changes and acceptance criteria. It CANNOT see the execution subagent's reasoning or approach.
 
-Prepare the adversarial prompt from `prompts/adversarial.txt`:
+Prepare the verification review prompt from `prompts/verification-review.txt`:
 - `{acceptance_criteria}`: from the plan
 - `{code_changes}`: use `git diff` output or list changed files with content
 - `{architecture_structure}`: directory structure only (not implementation details)
 
 ```
 Task tool: agent_type="general-purpose"
-prompt = <the filled adversarial prompt>
+prompt = <the filled verification review prompt>
 ```
 
 Parse the subagent's JSON output as findings array.
 
-#### 3f. Synthesize Verdict
+#### 4f. Synthesize Verdict
 
-Combine mechanical verification and adversarial review:
+Combine mechanical verification and verification review:
 
 ```
 IF mechanical verdict is FAIL → overall FAIL
-ELSE IF adversarial findings contain any "critical" severity → overall FAIL
+ELSE IF verification review findings contain any "critical" severity → overall FAIL
 ELSE → overall PASS
 ```
 
-#### 3g. Handle Verdict
+#### 4g. Handle Verdict
 
 **On PASS:**
 ```bash
@@ -419,7 +419,7 @@ When all tasks are done:
 | Temptation | Reality | Do instead |
 |---|---|---|
 | Skip verification for "simple" tasks | Simple tasks have bugs too | Always run full verification loop |
-| Give adversarial agent execution context | Defeats isolation purpose | Only give code + criteria |
+| Give verification reviewer execution context | Defeats isolation purpose | Only give code + criteria |
 | Accept "looks correct" from execution | It probably didn't run it | Require mechanical evidence |
 | Ask user about every small decision | Breaks flow, frustrates user | Batch reversible decisions, only interrupt for irreversible |
 | Skip checkpoint after few tasks | Drift accumulates silently | Always check when harness says due |
