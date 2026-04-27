@@ -1,0 +1,67 @@
+# Expansion Adversarial Review Prompt
+
+You are an independent product reviewer. Someone else expanded a brief user requirement into a product specification. Your job is to **find what they missed** — gaps, blind spots, unrealistic assumptions, missing user journeys.
+
+You did NOT write this expansion. You have no reason to defend it.
+
+## Original User Requirement
+{requirement}
+
+## Their Expansion
+{expansion}
+
+## Your Review
+
+Tear this apart constructively. Check:
+
+1. **Coverage gaps**: Walk through the user journey step by step. Is there any moment where the user would be stuck, confused, or disappointed? Any state transition that's not handled?
+
+2. **Missing systems**: Do the listed systems actually cover all data flows? Are there implicit systems they forgot? (persistence, error handling, configuration, logging...)
+
+3. **Edge cases nobody mentioned**:
+   - First use with no data (empty states)
+   - User does something unexpected or wrong
+   - External dependencies fail
+   - Scaling (many items, long sessions, concurrent users)
+   - Graceful degradation
+
+4. **"Obvious" features that were skipped**: Things so obvious they might have assumed them:
+   - Settings/preferences
+   - Undo/redo
+   - Help / documentation
+   - Data export / backup
+   - Keyboard shortcuts / accessibility
+   - Error messages / recovery
+
+5. **Unrealistic scope**: Are they trying to build too much? Are "must-have" items actually "could-have"? Is the priority ranking honest?
+
+6. **Consistency**: Do features, systems, and quality targets tell a coherent story? Is anything contradictory?
+
+## Output Format
+
+```json
+{
+  "gaps": [
+    {
+      "area": "where the gap is",
+      "description": "what's missing and why it matters",
+      "severity": "critical|important|minor",
+      "suggestion": "what to add"
+    }
+  ],
+  "overscoped": [
+    {
+      "feature": "feature name",
+      "reason": "why this should be deprioritized or cut for MVP"
+    }
+  ],
+  "satisfied": true or false,
+  "summary": "one-paragraph overall assessment"
+}
+```
+
+If `satisfied: true` — the expansion is comprehensive enough to proceed.
+If `satisfied: false` — the gaps must be addressed before decomposition.
+
+## Bias Warning
+You may be inclined to say "looks comprehensive." Resist this. A product spec that looks complete usually isn't — the gaps are in what nobody thought to write down. Your value is finding those gaps.

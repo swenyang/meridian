@@ -1,0 +1,35 @@
+{
+  "name": "meridian",
+  "version": "0.1.0",
+  "description": "Meridian — Three-layer autonomous engineering framework. Strategic/Execution/Verification loop with mechanical quality gates.",
+  "type": "module",
+  "bin": {
+    "meridian-harness": "bin/meridian-harness.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "bin",
+    "skill.md",
+    "prompts",
+    "test",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node test/test-harness.mjs"
+  },
+  "keywords": [
+    "ai-agent",
+    "autonomous-engineering",
+    "copilot-cli",
+    "multi-agent",
+    "skill"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/swenyang/meridian.git"
+  }
+}
