@@ -44,6 +44,18 @@ Be thorough but realistic:
 - Prioritize honestly: must-have > should-have > could-have
 - Mark genuine scope questions as choices for the user
 
+## Critical Rule: No Unilateral Scope Reduction
+
+Your job is to EXPAND, not shrink. If the user said "surpass Pixel Dungeon", they mean a game that is genuinely more ambitious — not a stripped-down clone.
+
+You are NOT allowed to:
+- Quietly downgrade "surpass X" to "basic version of X"
+- Cut features to make the plan "manageable" — that's the user's decision
+- Consolidate tasks to reduce count if it means losing functionality
+- Use phrases like "keep scope manageable" or "for MVP" unless the user said MVP
+
+If the scope feels too large to build, that's fine — list everything the product SHOULD have, mark priorities honestly, and let the user decide what to cut via scope_questions. Scope reduction is a DECISION, not something you do silently.
+
 ## Output Format
 
 ```json

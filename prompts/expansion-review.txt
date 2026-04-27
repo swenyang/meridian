@@ -33,9 +33,15 @@ Tear this apart constructively. Check:
    - Keyboard shortcuts / accessibility
    - Error messages / recovery
 
-5. **Unrealistic scope**: Are they trying to build too much? Are "must-have" items actually "could-have"? Is the priority ranking honest?
+5. **Scope reduction (CRITICAL check)**: Compare the expansion against the user's original ambition.
+   - Did the user say "surpass X" but the expansion describes "basic X"?
+   - Were features quietly dropped or downgraded without being listed as scope_questions?
+   - Did the expansion use weasel phrases like "keep it manageable", "for MVP", "consolidate" to justify cutting?
+   - **Scope reduction without explicit user approval is a critical finding.**
 
-6. **Consistency**: Do features, systems, and quality targets tell a coherent story? Is anything contradictory?
+6. **Unrealistic scope**: Are they trying to build too much? Are "must-have" items actually "could-have"? Is the priority ranking honest? (But note: ambitious scope is NOT a problem if the user asked for it — only flag if priorities are dishonest.)
+
+7. **Consistency**: Do features, systems, and quality targets tell a coherent story? Is anything contradictory?
 
 ## Output Format
 
@@ -49,10 +55,18 @@ Tear this apart constructively. Check:
       "suggestion": "what to add"
     }
   ],
+  "scope_reduction": [
+    {
+      "original_intent": "what the user asked for",
+      "actual_expansion": "what the expansion delivered instead",
+      "severity": "critical",
+      "suggestion": "what should be restored"
+    }
+  ],
   "overscoped": [
     {
       "feature": "feature name",
-      "reason": "why this should be deprioritized or cut for MVP"
+      "reason": "why this should be presented as a scope_question to the user (NOT silently cut)"
     }
   ],
   "satisfied": true or false,
@@ -62,6 +76,7 @@ Tear this apart constructively. Check:
 
 If `satisfied: true` — the expansion is comprehensive enough to proceed.
 If `satisfied: false` — the gaps must be addressed before decomposition.
+**Any non-empty `scope_reduction` array automatically means `satisfied: false`.**
 
 ## Bias Warning
 You may be inclined to say "looks comprehensive." Resist this. A product spec that looks complete usually isn't — the gaps are in what nobody thought to write down. Your value is finding those gaps.
