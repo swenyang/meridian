@@ -51,9 +51,15 @@ console.log("=== Meridian Harness Tests ===\n");
 console.log("--- State Management ---");
 let r = run(`init --dir ${DIR}`);
 assert("init creates dir", r, "created", "true");
+assert("init mode is new", r, "mode", "new");
 
 r = run(`init --dir ${DIR}`);
-assert("init is idempotent", r, "created", "false");
+assert("init detects active run", r, "mode", "active");
+
+// Run status
+r = run(`run-status --dir ${DIR}`);
+assert("run-status exists", r, "exists", "true");
+assert("run-status active", r, "status", "active");
 
 // Create plan file
 mkdirSync(DIR, { recursive: true });
@@ -202,6 +208,23 @@ assert("T4 removed", r, "found", "false");
 console.log("\n--- Verification ---");
 r = run(`detect-tools --dir ${DIR}`);
 assert("detect-tools finds npm test", r, "test.detected", "true");
+
+// --- Run Lifecycle ---
+console.log("\n--- Run Lifecycle ---");
+r = run(`run-complete --dir ${DIR}`);
+assert("run-complete works", r, "completed", "true");
+
+r = run(`run-status --dir ${DIR}`);
+assert("run-status shows completed", r, "status", "completed");
+
+// Init again should archive and create new run
+r = run(`init --dir ${DIR}`);
+assert("init after complete archives", r, "mode", "new_after_archive");
+assert("init creates new run", r, "created", "true");
+
+r = run(`run-status --dir ${DIR}`);
+assert("new run is active", r, "status", "active");
+assert("archived runs count", { ok: r.archived_runs > 0 }, "ok", "true");
 
 // --- Summary ---
 console.log(`\n=== Results: ${pass} passed, ${fail} failed ===`);

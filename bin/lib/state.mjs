@@ -1,6 +1,6 @@
 // State management — JSON-file-backed project state (zero-dependency, Node 18+).
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, cpSync, readdirSync, renameSync } from "fs";
 import { join } from "path";
 
 const STATE_FILE = "state.json";
@@ -19,18 +19,8 @@ function writeState(dir, state) {
   writeFileSync(statePath(dir), JSON.stringify(state, null, 2), "utf8");
 }
 
-/**
- * Initialize .meridian/ directory structure and state file.
- */
-export function init(dir) {
-  if (existsSync(statePath(dir))) {
-    return { created: false, dir, reason: "already initialized" };
-  }
-
-  mkdirSync(dir, { recursive: true });
+function ensureMemoryFiles(dir) {
   mkdirSync(join(dir, "memory"), { recursive: true });
-  mkdirSync(join(dir, "tasks"), { recursive: true });
-
   const memoryFiles = {
     "project_brief.md": "# Project Brief\n\n_Not yet initialized._\n",
     "decisions_log.md": "# Decisions Log\n\n_No decisions recorded yet._\n",
@@ -38,33 +28,124 @@ export function init(dir) {
     "completed_tasks.md": "# Completed Tasks\n\n_No tasks completed yet._\n",
     "active_issues.md": "# Active Issues\n\n_No active issues._\n",
   };
-
   for (const [name, content] of Object.entries(memoryFiles)) {
     const filePath = join(dir, "memory", name);
     if (!existsSync(filePath)) {
       writeFileSync(filePath, content, "utf8");
     }
   }
+}
 
+function newStateObject() {
   const now = new Date().toISOString();
-  writeFileSync(
-    statePath(dir),
-    JSON.stringify(
-      {
-        version: VERSION,
-        tasks: {},
-        iterations: [],
-        decisions: {},
-        created_at: now,
-        updated_at: now,
-      },
-      null,
-      2
-    ),
-    "utf8"
-  );
+  return {
+    version: VERSION,
+    run_id: `run-${now.slice(0, 10).replace(/-/g, "")}-${now.slice(11, 19).replace(/:/g, "")}`,
+    status: "active",
+    tasks: {},
+    iterations: [],
+    decisions: {},
+    created_at: now,
+    updated_at: now,
+  };
+}
 
-  return { created: true, dir };
+/**
+ * Initialize .meridian/ directory. Smart detection:
+ * - No .meridian/ → first run, create everything
+ * - Has active run → return active (caller decides to add to it or not)
+ * - Has completed run → archive it, start new run
+ */
+export function init(dir) {
+  mkdirSync(dir, { recursive: true });
+  mkdirSync(join(dir, "runs"), { recursive: true });
+  mkdirSync(join(dir, "tasks"), { recursive: true });
+  ensureMemoryFiles(dir);
+
+  // No state file → first run
+  if (!existsSync(statePath(dir))) {
+    const state = newStateObject();
+    writeFileSync(statePath(dir), JSON.stringify(state, null, 2), "utf8");
+    return { created: true, dir, run_id: state.run_id, mode: "new" };
+  }
+
+  // State exists — check status
+  const state = readState(dir);
+
+  if (state.status === "active") {
+    // Active run in progress
+    return { created: false, dir, run_id: state.run_id, mode: "active", reason: "run in progress" };
+  }
+
+  // Completed run — archive and start fresh
+  const archiveDir = join(dir, "runs", state.run_id || `run-archived-${Date.now()}`);
+  mkdirSync(archiveDir, { recursive: true });
+
+  // Move state, plan, tasks to archive
+  if (existsSync(statePath(dir))) {
+    cpSync(statePath(dir), join(archiveDir, "state.json"));
+  }
+  if (existsSync(join(dir, "plan.json"))) {
+    cpSync(join(dir, "plan.json"), join(archiveDir, "plan.json"));
+  }
+  if (existsSync(join(dir, "tasks"))) {
+    cpSync(join(dir, "tasks"), join(archiveDir, "tasks"), { recursive: true });
+    // Clear tasks dir for new run
+    for (const entry of readdirSync(join(dir, "tasks"))) {
+      const p = join(dir, "tasks", entry);
+      cpSync(p, join(archiveDir, "tasks", entry), { recursive: true });
+    }
+  }
+
+  // Start new run (memory persists!)
+  const newState = newStateObject();
+  writeFileSync(statePath(dir), JSON.stringify(newState, null, 2), "utf8");
+
+  return {
+    created: true,
+    dir,
+    run_id: newState.run_id,
+    mode: "new_after_archive",
+    archived: state.run_id,
+  };
+}
+
+/**
+ * Mark the current run as completed.
+ */
+export function runComplete(dir) {
+  const state = readState(dir);
+  state.status = "completed";
+  state.completed_at = new Date().toISOString();
+  writeState(dir, state);
+  return { completed: true, run_id: state.run_id };
+}
+
+/**
+ * Get current run status and context for smart routing.
+ */
+export function runStatus(dir) {
+  if (!existsSync(statePath(dir))) {
+    return { exists: false };
+  }
+  const state = readState(dir);
+  const taskCount = Object.keys(state.tasks).length;
+  const doneCount = Object.values(state.tasks).filter(t => t.status === "done").length;
+  const pendingCount = Object.values(state.tasks).filter(t => t.status === "pending").length;
+
+  // List archived runs
+  const runsDir = join(dir, "runs");
+  const archivedRuns = existsSync(runsDir)
+    ? readdirSync(runsDir).filter(f => f.startsWith("run-"))
+    : [];
+
+  return {
+    exists: true,
+    run_id: state.run_id,
+    status: state.status,
+    tasks: { total: taskCount, done: doneCount, pending: pendingCount },
+    archived_runs: archivedRuns.length,
+  };
 }
 
 /**

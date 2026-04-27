@@ -43,6 +43,8 @@ Usage: meridian-harness <command> [flags]
 State Commands:
   init --dir <path>                          Initialize .meridian/ directory
   plan-set --plan <file> --dir <path>        Store task plan
+  run-status --dir <path>                    Check current run status
+  run-complete --dir <path>                  Mark current run as completed
   task-list --dir <path>                     List all tasks
   task-status --task <id> --dir <path>       Query task status
   task-complete --task <id> --summary <text> --dir <path>  Mark task complete
@@ -96,6 +98,20 @@ switch (command) {
     if (!flags.plan) { console.error("Error: --plan <file> is required"); process.exit(1); }
     const { planSet } = await import("./lib/state.mjs");
     const result = planSet(resolveDir(flags.dir), resolve(flags.plan));
+    console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "run-status": {
+    const { runStatus } = await import("./lib/state.mjs");
+    const result = runStatus(resolveDir(flags.dir));
+    console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "run-complete": {
+    const { runComplete } = await import("./lib/state.mjs");
+    const result = runComplete(resolveDir(flags.dir));
     console.log(JSON.stringify(result));
     break;
   }

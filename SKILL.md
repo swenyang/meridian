@@ -42,7 +42,13 @@ When the user invokes `/meridian <task>`, execute this protocol:
 $HARNESS init --dir $MERIDIAN_DIR
 ```
 
-**Detect project context:** Check if you're working in an existing project or starting fresh.
+The harness returns a `mode` field:
+
+- **`mode: "new"`** — First time. Proceed to Step 0a/0b (project detection).
+- **`mode: "active"`** — A run is already in progress. This means the user is adding to an ongoing project. Treat this as `/meridian add` — read current memory, add the new requirement to the existing plan via `plan-adjust`, and continue the task loop from where it left off.
+- **`mode: "new_after_archive"`** — Previous run completed and has been archived. Memory (project_brief, architecture, completed_tasks, decisions_log) is preserved from the last run. Start a new run with this context — the strategic layer already knows the project.
+
+**Detect project context:** Check if you're working in an existing codebase or starting fresh.
 
 **Existing project indicators:** source files already exist, git history present, package.json/pyproject.toml with dependencies, README with docs.
 
@@ -458,9 +464,14 @@ After each significant event, print a one-line status to the user:
 When all tasks are done:
 
 1. Final checkpoint — verify overall consistency
-2. Print final summary:
+2. Mark run as completed:
+   ```bash
+   $HARNESS run-complete --dir $MERIDIAN_DIR
    ```
-   [Meridian] ✅ Project complete!
+   This sets `status: "completed"` so the next `/meridian` invocation will archive this run and start fresh (while preserving memory).
+3. Print final summary:
+   ```
+   [Meridian] ✅ Run complete!
    Tasks: 8/8 done | Iterations: 3 total | Decisions: 2 resolved
    
    Built: <project description>
