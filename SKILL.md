@@ -284,12 +284,37 @@ $HARNESS memory-update --file completed_tasks --append "\n## <task_id>: <title>\
 $HARNESS memory-update --file architecture --content "<updated architecture based on what was built>" --dir $MERIDIAN_DIR
 ```
 
-**On FAIL:**
+**On FAIL (regular build task):**
 ```bash
 $HARNESS iteration-record --task <id> --verdict FAIL --findings "<combined findings>" --strategy retry --dir $MERIDIAN_DIR
 ```
 
-The harness returns an `action` field telling you what to do next:
+The harness returns an `action` field telling you what to do next (see escalation ladder below).
+
+**On FAIL (integration checkpoint or E2E validation task):**
+
+Integration failures are different from regular task failures — the problem usually isn't in the integration task itself, but in an **earlier task's output**. Follow this diagnosis protocol:
+
+1. **Analyze the failure evidence** — read the mechanical verifier output and verification review findings. What specifically broke? A missing function? An incompatible interface? A runtime error?
+
+2. **Trace back to the root cause task** — which earlier task produced the broken output? Look at:
+   - Error messages (file paths, function names point to the source)
+   - The acceptance criteria of earlier tasks — were they too loose? Did they pass individually but not account for integration?
+
+3. **Reopen the root cause task:**
+   ```bash
+   $HARNESS task-reopen --task <root_cause_id> --reason "Integration test failed: <specific issue>" --dir $MERIDIAN_DIR
+   ```
+   This automatically marks downstream dependent tasks as `reverify`.
+
+4. **Update the reopened task's acceptance criteria** — add integration-aware criteria so the same gap doesn't recur. Use `plan-adjust`:
+   ```bash
+   $HARNESS plan-adjust --adjustments '[{"action":"update","id":"<root_cause_id>","fields":{"acceptance_criteria":["<original criteria>","<new integration-aware criterion>"]}}]' --dir $MERIDIAN_DIR
+   ```
+
+5. **Re-execute from the reopened task** — the task loop will pick it up (status is `pending` again), re-run execution + verification, then the `reverify` tasks will re-verify with the fixed dependency, and finally the integration checkpoint will re-run.
+
+6. **If you can't identify which task is at fault** — this is a sign the decomposition was too coarse. Use `plan-adjust` to insert a new diagnostic task between the suspected modules, or split the integration checkpoint into smaller integration tests.
 
 **`action: "retry"`** — Still have attempts left. Go back to Step 3c with iteration context (fill `prompts/iteration-fix.txt` with findings).
 
