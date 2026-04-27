@@ -30,6 +30,18 @@ Each criterion below will be mechanically verified. Your work is not done until 
 - If acceptance criteria are ambiguous, use your best judgment — don't stop and ask
 - Commit your changes when done (the orchestrator tracks commits)
 
+## End-to-End Verification (MANDATORY)
+After implementing, you MUST verify your changes work in the context of the whole project — not just in isolation.
+
+1. **Build/compile** the full project (not just your files)
+2. **Launch the product** — start the server, open the game, run the CLI — whatever "running" means for this project
+3. **Exercise the feature you just built** — don't just check it exists, USE it
+4. **Verify it integrates** with previously built features — if T1 built a login and you built T3 (user profile), log in THEN navigate to the profile
+
+Paste the actual output/result. Screenshots, terminal output, curl responses — real evidence that your work functions in the living product, not just in a test harness.
+
+If the project can't be launched yet (e.g., first task that just sets up scaffolding), state that explicitly and verify what you can (build passes, imports resolve, etc.).
+
 ## Verification Warning
 After you finish, an independent reviewer will check your work. They will:
 1. Run all tests, lint, and build checks mechanically

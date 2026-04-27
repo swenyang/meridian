@@ -42,6 +42,33 @@ When the user invokes `/meridian <task>`, execute this protocol:
 $HARNESS init --dir $MERIDIAN_DIR
 ```
 
+**Detect project context:** Check if you're working in an existing project or starting fresh.
+
+**Existing project indicators:** source files already exist, git history present, package.json/pyproject.toml with dependencies, README with docs.
+
+#### 0a. If EXISTING project:
+
+Before doing anything else, build a comprehensive understanding of the codebase:
+
+1. **Scan the project structure** — read directory tree, key config files (package.json, pyproject.toml, etc.)
+2. **Read entry points** — main files, index files, app bootstrapping code
+3. **Read existing tests** — understand what's already tested and the testing patterns used
+4. **Read existing docs** — README, CONTRIBUTING, architecture docs if any
+5. **Identify conventions** — naming patterns, file organization, import style, error handling patterns
+6. **Run existing tests** — `$HARNESS verify --dir $MERIDIAN_DIR` to establish a baseline (all tests should pass BEFORE you start)
+
+Store this context in memory:
+```bash
+$HARNESS memory-update --file project_brief --content "<existing project summary: what it does, tech stack, key dependencies, conventions>" --dir $MERIDIAN_DIR
+$HARNESS memory-update --file architecture --content "<current architecture: directory structure, module responsibilities, data flow, key interfaces>" --dir $MERIDIAN_DIR
+```
+
+**Critical rule for existing projects:** The acceptance criteria for EVERY task must include "all existing tests still pass." You are adding to a working system — do not break what already works.
+
+#### 0b. If NEW project:
+
+No codebase to scan — proceed directly to Step 1.
+
 ### Step 1 — Requirement Expansion
 
 Before decomposing into tasks, expand the user's brief requirement into a comprehensive product specification. A brief like "build a Tetris game" should produce a spec covering scoring, levels, preview, controls, persistence, polish — not just "falling blocks + line clearing."

@@ -5,6 +5,15 @@ You are a product architect. The user gave a brief requirement. Your job is to e
 ## User's Original Requirement
 {requirement}
 
+## Existing Project Context (if any)
+{existing_project_context}
+
+If there's existing project context above, your expansion must:
+- Respect existing architecture, conventions, and patterns — don't redesign what already works
+- Identify integration points with existing code (which modules to extend vs create new)
+- Include "existing tests still pass" as a baseline acceptance criterion for every feature
+- Consider backward compatibility with existing functionality
+
 ## Expansion Checklist
 
 Work through each dimension systematically:
