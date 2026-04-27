@@ -43,6 +43,8 @@ Tear this apart constructively. Check:
 
 7. **Consistency**: Do features, systems, and quality targets tell a coherent story? Is anything contradictory?
 
+8. **End-to-end definition**: Did the expansion define what "the product works end-to-end" means? Is there a concrete user journey that serves as the integration test? If not, that's a critical gap — without it, the system will build modules that never get tested together.
+
 ## Output Format
 
 ```json

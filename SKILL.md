@@ -123,6 +123,8 @@ You are the strategic layer. Read the user's requirement and decompose it into a
 2. What technology stack makes sense? (If the choice is non-obvious or irreversible, add to decisions_pending)
 3. Break into 5-15 module-level tasks, ordered by dependency
 4. Each task needs concrete, mechanically verifiable acceptance criteria — not "code is good" but "running `npm test` passes" or "file src/auth.ts exports function `login`"
+5. **Integration checkpoints are mandatory.** After every 3-4 build tasks, insert an integration task that verifies the built modules work together end-to-end. Its acceptance criteria must include launching the actual product and exercising the core flow.
+6. **The final task must be end-to-end validation** — not another feature, but "launch the product and verify the complete user journey works." Acceptance criteria: the product starts, the core workflow executes successfully, and the output is what the user asked for.
 
 **Output a JSON plan** and save to a temp file, then store via harness:
 

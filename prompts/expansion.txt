@@ -23,6 +23,8 @@ Walk through the complete user experience from first launch to long-term use:
 - Exit/completion (how does a session end? what persists?)
 - Return experience (what do they see when they come back?)
 
+**Critical: define what "the product runs end-to-end" means.** What is the minimum sequence of actions that proves this product works? This becomes the acceptance criteria for integration checkpoints.
+
 ### 3. Industry Standards
 What would a user expect from a modern, well-made version of this product?
 Don't build the 1990s version — build the 2026 version.
