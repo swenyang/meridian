@@ -45,7 +45,7 @@ $HARNESS init --dir $MERIDIAN_DIR
 The harness returns a `mode` field:
 
 - **`mode: "new"`** — First time. Proceed to Step 0a/0b (project detection).
-- **`mode: "active"`** — A run is already in progress. This means the user is adding to an ongoing project. Treat this as `/meridian add` — read current memory, add the new requirement to the existing plan via `plan-adjust`, and continue the task loop from where it left off.
+- **`mode: "active"`** — A run is already in progress. The user is adding a new requirement to an ongoing project. Read current memory, add the new requirement to the existing plan via `plan-adjust`, and continue the task loop from where it left off.
 - **`mode: "new_after_archive"`** — Previous run completed and has been archived. Memory (project_brief, architecture, completed_tasks, decisions_log) is preserved from the last run. Start a new run with this context — the strategic layer already knows the project.
 
 **Detect project context:** Check if you're working in an existing codebase or starting fresh.
@@ -439,7 +439,7 @@ After a checkpoint that reopened tasks, some downstream tasks may be in `reverif
 
 ### Step 5c — Requirement Evolution (Layer 4)
 
-If the user says `/meridian add <new requirement>` mid-execution:
+If the user invokes `/meridian <new requirement>` while a run is active (detected via `mode: "active"` in Step 0):
 
 1. Read current project state (all memory files)
 2. Decompose the new requirement **in context of what's already built**

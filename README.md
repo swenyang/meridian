@@ -94,7 +94,7 @@ Real projects aren't linear. Meridian supports 4 layers of iteration:
 | **Task retry** | Verification fails | Retry with findings, then escalation ladder |
 | **Task backtracking** | Checkpoint finds earlier task is broken | `task-reopen` → cascade re-verify dependents |
 | **Plan adjustment** | Scope change mid-execution | `plan-adjust` → add/remove/update tasks |
-| **Requirement evolution** | User adds new requirement | `/meridian add <req>` → incremental decomposition |
+| **Requirement evolution** | User invokes `/meridian` while run is active | Incremental decomposition into existing plan |
 
 ## Memory System
 
