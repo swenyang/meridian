@@ -668,7 +668,12 @@ Use this in Step 1a when expanding the user's requirement.
 > 6. **Feature Categorization** — Categorize features into two groups ONLY:
 >    - **Will build:** Everything the product needs to fulfill the user's requirement. This includes ALL features needed for the core technical approach to work. If in doubt, it goes here.
 >    - **Scope questions:** Features where genuine trade-offs exist and the user should decide. Present as choices with recommendation.
->    Do NOT use "should-have" or "could-have" categories. These labels encourage putting important features in a "maybe" bucket where they get silently dropped. If a feature is needed for the product to work as described, it's "will build". If it's genuinely optional, make it a scope question and let the user decide.
+>    Do NOT use "should-have", "could-have", or "deferred to v1.1" categories. These labels are just ways to put important features in a "maybe" bucket where they get silently dropped. If a feature is needed for the product to work as described, it's "will build". If it's genuinely optional, make it a scope question and let the user decide.
+>
+>    **Scope question rules:**
+>    - The core technical approach identified in step 1 is NEVER a scope question. If your analysis says "need LLM", then LLM is will-build. You can ask which PROVIDER (OpenAI vs Azure vs local), but "skip LLM entirely" is not a valid option if your own analysis says it's needed.
+>    - If skipping an option would cause the product to fail its own eval targets, it's not a real choice — it's will-build.
+>    - "Deferred to v1.1" is not a category. Either it's will-build, or it's a scope question where one option is "skip for now." Don't create a dumping ground for features you don't want to deal with.
 >
 > **Critical Rule: No Unilateral Scope Reduction.** Your job is to EXPAND, not shrink. If the user said "surpass X", they mean genuinely more ambitious — not a stripped-down clone. You are NOT allowed to quietly downgrade scope, cut features to "keep it manageable", or use "for MVP" unless the user said MVP. If scope feels too large, list everything, mark priorities honestly, let the user decide via scope_questions.
 >
@@ -695,7 +700,7 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 > 3. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
 > 4. Edge cases — first use, wrong input, dependency failures, scaling
 > 5. "Obvious" features skipped — settings, undo, help, export, accessibility, error messages
-> 6. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? Features placed in "should-have" or "optional" that are clearly needed for the product to work as described? **Any scope reduction = critical finding.**
+> 6. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? Features placed in "should-have", "optional", or "deferred to v1.1" that are clearly needed for the product to work as described? Scope questions that offer "skip entirely" for the core technical approach? **Any scope reduction = critical finding.**
 > 7. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
 > 8. Consistency — features, systems, quality targets tell coherent story?
 > 9. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
