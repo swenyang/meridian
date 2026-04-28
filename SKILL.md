@@ -115,34 +115,46 @@ If progress stalls (reviewer keeps finding new gaps after multiple rounds), appl
 
 #### 1d. Present to User
 
-Format the finalized expansion as a scope confirmation — **选择题, not open-ended**:
+Format the finalized expansion as a scope confirmation — **选择题, not open-ended**.
+
+**IMPORTANT:** If the product requires external dependencies (API keys, model access, database connections), include a "Setup required" section. The user must confirm access BEFORE you proceed — never ask for credentials mid-execution.
 
 ```
-[Meridian] 📋 Scope confirmation for: "build a Tetris game"
+[Meridian] 📋 Scope confirmation for: "build an Excel parser"
 
 Will build:
-  ✅ Grid rendering + piece movement + rotation
-  ✅ Collision detection + line clearing
-  ✅ Scoring system with levels and speed progression
-  ✅ Next piece preview + hold piece
-  ✅ Ghost piece (landing preview)
-  ✅ Game over detection + restart
-  ✅ High score persistence (local storage)
-  ✅ Keyboard controls + pause/resume
+  ✅ Multi-format support (.xlsx, .xls, .csv, .ods)
+  ✅ LLM-powered semantic structure detection (for messy/ambiguous layouts)
+  ✅ Auto table region + header detection
+  ✅ Merged cell handling + hierarchy reconstruction
+  ✅ Schema inference + type coercion
+  ✅ Output: JSON, CSV, SQLite, Parquet
+  ✅ Data lineage / provenance
+  ✅ Eval framework (200+ files with ground truth)
+  ...
 
 Scope questions (your call):
-  → [A] Include sound effects (recommended)
-  → [B] Skip sound effects
+  1. LLM provider:
+     → [A] OpenAI GPT-4o (recommended)
+     → [B] Azure OpenAI (enterprise)
+     → [C] Local via Ollama (no API key, lower accuracy)
 
-  → [A] Include mobile touch controls (recommended)
-  → [B] Desktop only
+  2. Web API:
+     → [A] CLI + library only (recommended for v1)
+     → [B] Include REST API
 
-Reply with choices (e.g., "A A") or Enter for all recommended.
+⚠️ Setup required BEFORE implementation:
+  🔑 LLM API key — provide your API key for the chosen provider
+     (will be stored in .env, never committed)
+  📁 Test Excel files — provide 5-10 real-world Excel files for eval
+     (place in tests/fixtures/)
+
+Reply with choices (e.g., "1A 2A") or Enter for all recommended.
 Reply "add: <feature>" to add something I missed.
 Reply "skip: <feature>" to remove something from will-build.
 ```
 
-After user confirms → proceed to Step 2 (Design).
+After user confirms scope + provides required setup → proceed to Step 2 (Design).
 
 ### Step 2 — Design Phase
 
@@ -649,13 +661,22 @@ Use this in Step 1a when expanding the user's requirement.
 >
 > **Expansion Checklist — work through each systematically:**
 >
+> **=== NON-NEGOTIABLE RULES (read these FIRST) ===**
+>
+> **RULE 1: The chosen technical approach is ALWAYS will-build.** If your analysis concludes "need LLM/AI for this problem," then LLM integration goes in will-build. It CANNOT appear as optional, skippable, or a scope question. The scope question can be WHICH provider (OpenAI/Azure/local), but not WHETHER to include it. If you find yourself writing "Optional LLM" or "Skip LLM for v1" after your own analysis said LLM is needed — you are contradicting yourself. Stop and fix it.
+>
+> **RULE 2: External dependencies must be resolved upfront.** If the product needs an API key, model access, database connection, or any external service — this must be listed in the scope confirmation (Step 1d) so the user provides access BEFORE implementation starts. Do NOT defer this to design or execution phase. The user should never be interrupted mid-build for credentials.
+>
+> **RULE 3: No "deferred to v1.1" dumping ground.** Either a feature is will-build, or it's a scope question. "Deferred" is just a renamed should-have that gets silently dropped.
+>
+> **=== END RULES ===**
+>
 > 1. **Core Technical Challenge (START HERE)** — Before listing features, identify the HARDEST PART of this project. What makes this problem non-trivial? Then do an approach analysis:
 >    - **Naive approach:** What's the simplest way to solve this? (regex, heuristics, hardcoded rules, etc.)
 >    - **Why it fails:** What real-world scenarios break the naive approach? Be specific with examples.
 >    - **Better approaches:** What techniques actually solve this? (ML, semantic understanding, AST parsing, constraint solving, etc.)
 >    - **Chosen approach and why:** Which approach fits this project's constraints?
 >    This analysis is NOT optional. If you skip it, you'll design a system around the wrong technical foundation and everything built on top will be wrong.
->    **CRITICAL: Whatever technique you identify as the "chosen approach" here is automatically a must-have feature. You cannot put the core technical solution in "should-have" or "could-have". If your analysis says "need LLM semantic understanding", then LLM integration is must-have, period.**
 >
 > 2. **Core Systems** — What distinct systems/subsystems does this product need? (game: rendering, input, physics, state, scoring, AI, audio, persistence / web app: auth, data model, API, UI, notifications / CLI: args, config, output, errors)
 >
@@ -695,7 +716,8 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 >    - Jumping straight to "smart detection" or "intelligent analysis" without specifying WHAT technique powers the intelligence (LLM? ML model? pattern matching?). Buzzwords are not technical approaches.
 >    - Missing the question: "What happens when the input doesn't match any expected pattern?" If the answer is undefined, the approach is fragile.
 >    - If the problem domain involves understanding human-created content (documents, spreadsheets, forms, emails), and the approach is purely algorithmic with no AI/LLM component, this is almost certainly a critical gap.
->    - **PRIORITY GAMING CHECK:** If the technical challenge analysis concluded "need technique X" but technique X appears in should-have/could-have/optional instead of will-build — that's a critical contradiction. The core technical solution cannot be optional.
+>    - **PRIORITY GAMING CHECK:** If the technical challenge analysis concluded "need technique X" but technique X appears in should-have/could-have/optional/scope-question-with-skip instead of will-build — that's a critical contradiction. The core technical solution cannot be optional. Specifically watch for: "Optional LLM", "Skip LLM for v1", "LLM-assisted (if enabled)", "heuristic with optional AI fallback". If the analysis says the naive approach fails without AI/LLM, then AI/LLM is will-build.
+>    - **DEFERRED DUMPING CHECK:** Is there a "Deferred to v1.1" or similar section? This is a banned category. Each item must be either will-build or an explicit scope question.
 > 2. Coverage gaps — any moment the user would be stuck/confused?
 > 3. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
 > 4. Edge cases — first use, wrong input, dependency failures, scaling
