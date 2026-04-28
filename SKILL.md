@@ -622,6 +622,10 @@ Use this in Step 2a after scope is confirmed.
 >
 > **For each artifact:** Be concrete (actual field names, types, constraints — not "various fields"). Mark confidence: 🟢 high (proceed) / 🟡 review recommended (alternatives exist) / 🔴 needs user input. Provide alternatives for 🟡/🔴.
 >
+> **External Dependencies (CRITICAL):** If the design requires external services, APIs, or credentials (LLM APIs, databases, cloud services, third-party SDKs), you MUST: (1) List every external dependency explicitly. (2) Mark each as 🔴 needs_input — the user must confirm they have access/credentials. (3) Specify exactly what's needed (API key name, env var, account signup URL). Do NOT assume the user has any API key or external account.
+>
+> **Evaluation Strategy (CRITICAL for AI/ML projects):** If the product involves AI/LLM output that needs to be "correct" (parsing, classification, generation, extraction), the design MUST include: (1) An eval dataset specification — what test inputs exist or need to be created, what the expected outputs look like. (2) Accuracy metrics — how do you measure if the AI output is correct? (exact match? field-level accuracy? human judgment?) (3) Ground truth — where does the "right answer" come from? (manually labeled data? existing system output? expert review?) (4) A verification task in the plan that runs the eval and reports metrics. Without eval, you're building an AI system you can never verify.
+>
 > **Output:** JSON with `artifacts[]` (type, confidence, content, alternatives, rationale) and `skipped_artifacts[]`.
 >
 > **Critical:** Design the CONTRACT between modules, not the implementation. Every field named and typed. Every endpoint with request/response shapes. Every component with its responsibilities.
@@ -636,7 +640,7 @@ Use this in Step 2b. Independent subagent reviews the design.
 > **Confirmed Scope:** {confirmed_scope}
 > **Their Design:** {design_artifacts}
 >
-> **Check:** Completeness (can you build from this alone?), Consistency (artifacts agree?), Implementability (can a dev implement without guessing?), Integration points (contracts clear at module boundaries?), Missing infrastructure (error handling, config, logging, migrations?), Confidence honesty (🟢🟡🔴 levels accurate?).
+> **Check:** Completeness (can you build from this alone?), Consistency (artifacts agree?), Implementability (can a dev implement without guessing?), Integration points (contracts clear at module boundaries?), Missing infrastructure (error handling, config, logging, migrations?), Confidence honesty (🟢🟡🔴 levels accurate?), **External dependencies (every API/credential listed and marked 🔴?)**, **Eval strategy (if AI/ML: eval dataset + metrics + ground truth defined? Missing = critical gap)**.
 >
 > **Output:** JSON with `issues[]`, `confidence_overrides[]`, `satisfied` (bool), `summary`.
 
