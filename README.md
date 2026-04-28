@@ -117,6 +117,9 @@ Step 6 — Checkpoint (every N tasks)
 │  ├── Direction check (drifting from goal?)
 │  ├── Plan adjustment (add/remove/update tasks)
 │  ├── Task backtracking (reopen → reverify cascade)
+│  ├── Eval-driven quality loop (AI/ML projects):
+│  │     eval → analyze failure clusters → targeted fix → re-eval
+│  │     → loop until target accuracy or diminishing returns
 │  └── Batch decision report if due
 │
 Step 7 — Status Notifications
@@ -142,7 +145,7 @@ escalate          → present full analysis + options to user (multiple-choice)
 
 ## Multi-Layer Iteration
 
-Real projects aren't linear. Meridian supports 4 layers of iteration:
+Real projects aren't linear. Meridian supports 5 layers of iteration:
 
 | Layer | Trigger | Mechanism |
 |---|---|---|
@@ -150,6 +153,7 @@ Real projects aren't linear. Meridian supports 4 layers of iteration:
 | **Task backtracking** | Checkpoint finds earlier task is broken | `task-reopen` → cascade re-verify dependents |
 | **Plan adjustment** | Scope change mid-execution | `plan-adjust` → add/remove/update tasks |
 | **Requirement evolution** | User invokes `/meridian` while run is active | Incremental decomposition into existing plan |
+| **Eval-driven quality** | AI output accuracy below target | Analyze failure clusters → targeted fixes → re-eval loop |
 
 ## Memory System
 

@@ -504,6 +504,87 @@ If the user invokes `/meridian <new requirement>` while a run is active (detecte
 3. Use `$HARNESS plan-adjust` to add new tasks with correct dependencies on existing tasks
 4. Continue the task execution loop — new tasks will be picked up in dependency order
 
+### Step 6d — Eval-Driven Quality Loop (Layer 5, AI/ML projects)
+
+For projects that involve AI/LLM output (parsing, classification, generation, extraction), code that compiles and tests that pass are NOT enough. The AI output must be **measurably good**. This step runs after the core AI functionality is built and the eval task is complete.
+
+**When to trigger:** After an eval/benchmark task completes, check the results:
+
+```bash
+$HARNESS memory-read --file active_issues --dir $MERIDIAN_DIR
+# Look for eval results: accuracy metrics, failure cases
+```
+
+**The eval improvement loop:**
+
+```
+┌─────────────────────────────────────────────┐
+│ 1. Run eval against test dataset            │
+│    → accuracy: 62%, 15/40 cases failing     │
+│                                             │
+│ 2. Analyze failures (strategic layer)       │
+│    → cluster by failure type:               │
+│      - 8 cases: merged headers not detected │
+│      - 4 cases: multi-table sheets confused │
+│      - 3 cases: CJK encoding issues         │
+│                                             │
+│ 3. Prioritize: fix biggest cluster first    │
+│    → create improvement task:               │
+│      "Fix merged header detection"          │
+│      with specific failing cases as         │
+│      acceptance criteria                    │
+│                                             │
+│ 4. Execute improvement → verify → re-eval   │
+│    → accuracy: 78%, 9/40 cases failing      │
+│                                             │
+│ 5. Loop: next failure cluster               │
+│    → repeat until target accuracy met       │
+│      or diminishing returns                 │
+└─────────────────────────────────────────────┘
+```
+
+**Protocol:**
+
+1. **Read eval results** — the eval task should produce a structured report: overall accuracy, per-case pass/fail, failure reasons.
+
+2. **Analyze failure clusters** — as the strategic layer, group failures by root cause. Don't fix them one-by-one — find patterns:
+   - Same type of input causing failures? (e.g., merged cells, multi-table, CJK)
+   - Same component failing? (e.g., prompt wording, schema parser, type conversion)
+   - Same kind of error? (e.g., missing fields, wrong types, hallucinated data)
+
+3. **Create targeted improvement tasks** via `plan-adjust`:
+   - Each task targets ONE failure cluster
+   - Acceptance criteria = the specific failing cases must pass
+   - Include "existing passing cases must not regress" as criteria
+
+4. **Execute improvement** — normal task execution loop (Step 5)
+
+5. **Re-run eval** — after improvement task passes, re-run the full eval:
+   - Did the target cases improve?
+   - Did any previously passing cases regress?
+   - What's the new overall accuracy?
+
+6. **Record progress** — update memory with eval history:
+   ```bash
+   $HARNESS memory-update --file active_issues --append "
+   ## Eval Round 2: accuracy 62% → 78%
+   Fixed: merged header detection (8 cases)
+   Remaining: multi-table (4), CJK (3)
+   " --dir $MERIDIAN_DIR
+   ```
+
+7. **Loop or stop:**
+   - Target accuracy not met + clear failure clusters remain → loop back to step 2
+   - Target accuracy met → move on
+   - Diminishing returns (< 2% improvement per round) → escalate to user with analysis:
+     ```
+     [Meridian] 📊 Eval plateau at 85% accuracy
+     Remaining failures are edge cases with no clear pattern.
+     → [A] Accept 85% and continue (recommended)
+     → [B] Invest more iterations targeting specific cases
+     → [C] Adjust eval criteria (some cases may be unreasonable)
+     ```
+
 ### Step 7 — Status Notifications
 
 After each significant event, print a one-line status to the user:
@@ -571,15 +652,22 @@ Use this in Step 1a when expanding the user's requirement.
 >
 > **Expansion Checklist — work through each systematically:**
 >
-> 1. **Core Systems** — What distinct systems/subsystems does this product need? (game: rendering, input, physics, state, scoring, AI, audio, persistence / web app: auth, data model, API, UI, notifications / CLI: args, config, output, errors)
+> 1. **Core Technical Challenge (START HERE)** — Before listing features, identify the HARDEST PART of this project. What makes this problem non-trivial? Then do an approach analysis:
+>    - **Naive approach:** What's the simplest way to solve this? (regex, heuristics, hardcoded rules, etc.)
+>    - **Why it fails:** What real-world scenarios break the naive approach? Be specific with examples.
+>    - **Better approaches:** What techniques actually solve this? (ML, semantic understanding, AST parsing, constraint solving, etc.)
+>    - **Chosen approach and why:** Which approach fits this project's constraints?
+>    This analysis is NOT optional. If you skip it, you'll design a system around the wrong technical foundation and everything built on top will be wrong.
 >
-> 2. **User Journey Completeness** — Walk through the full user experience: first-time experience → core workflow → edge cases → exit/completion → return experience. **Critical: define what "the product runs end-to-end" means.** What is the minimum sequence of actions that proves this product works?
+> 2. **Core Systems** — What distinct systems/subsystems does this product need? (game: rendering, input, physics, state, scoring, AI, audio, persistence / web app: auth, data model, API, UI, notifications / CLI: args, config, output, errors)
 >
-> 3. **Industry Standards** — What would a user expect from a modern, well-made 2026 version? What are "table stakes"?
+> 3. **User Journey Completeness** — Walk through the full user experience: first-time experience → core workflow → edge cases → exit/completion → return experience. **Critical: define what "the product runs end-to-end" means.** What is the minimum sequence of actions that proves this product works?
 >
-> 4. **Quality Attributes** — Performance, visual design, accessibility, persistence, error resilience, security, configurability — which matter and how much?
+> 4. **Industry Standards** — What would a user expect from a modern, well-made 2026 version? What are "table stakes"?
 >
-> 5. **Scope Awareness** — Be thorough but realistic. Prioritize: must-have > should-have > could-have. Mark genuine scope questions as choices for the user.
+> 5. **Quality Attributes** — Performance, visual design, accessibility, persistence, error resilience, security, configurability — which matter and how much?
+>
+> 6. **Scope Awareness** — Be thorough but realistic. Prioritize: must-have > should-have > could-have. Mark genuine scope questions as choices for the user.
 >
 > **Critical Rule: No Unilateral Scope Reduction.** Your job is to EXPAND, not shrink. If the user said "surpass X", they mean genuinely more ambitious — not a stripped-down clone. You are NOT allowed to quietly downgrade scope, cut features to "keep it manageable", or use "for MVP" unless the user said MVP. If scope feels too large, list everything, mark priorities honestly, let the user decide via scope_questions.
 >
@@ -596,14 +684,15 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 > **Their Expansion:** {expansion}
 >
 > **Review checklist:**
-> 1. Coverage gaps — any moment the user would be stuck/confused?
-> 2. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
-> 3. Edge cases — first use, wrong input, dependency failures, scaling
-> 4. "Obvious" features skipped — settings, undo, help, export, accessibility, error messages
-> 5. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? **Any scope reduction = critical finding.**
-> 6. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
-> 7. Consistency — features, systems, quality targets tell coherent story?
-> 8. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
+> 1. **Technical depth (CRITICAL)** — Did the expansion identify the CORE TECHNICAL CHALLENGE? Did it analyze why naive approaches fail? If the expansion jumps straight to "use heuristic rules" or "parse with regex" without considering why that breaks in real-world scenarios, that's a critical gap. The expansion must show it thought deeply about the problem, not just listed features.
+> 2. Coverage gaps — any moment the user would be stuck/confused?
+> 3. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
+> 4. Edge cases — first use, wrong input, dependency failures, scaling
+> 5. "Obvious" features skipped — settings, undo, help, export, accessibility, error messages
+> 6. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? **Any scope reduction = critical finding.**
+> 7. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
+> 8. Consistency — features, systems, quality targets tell coherent story?
+> 9. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
 >
 > **Output:** JSON with `gaps[]`, `scope_reduction[]`, `overscoped[]`, `satisfied` (bool), `summary`. Any non-empty `scope_reduction` = automatic `satisfied: false`.
 
