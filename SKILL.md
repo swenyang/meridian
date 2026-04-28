@@ -81,7 +81,7 @@ Before decomposing into tasks, expand the user's brief requirement into a compre
 
 #### 1a. Expand
 
-As the strategic layer, use the `prompts/expansion.txt` template to think through:
+As the strategic layer, use the Appendix A (Expansion Prompt) template to think through:
 - Core systems the product needs
 - Complete user journeys (first use → core workflow → edge cases → exit → return)
 - Industry standards (what a modern 2026 version looks like)
@@ -91,7 +91,7 @@ Output: a structured JSON product specification.
 
 #### 1b. Verification Review of Expansion
 
-Spawn a **general-purpose subagent** with the `prompts/expansion-review.txt` template. This subagent gets:
+Spawn a **general-purpose subagent** with the Appendix B (Expansion Verification Review) template. This subagent gets:
 - The original user requirement
 - Your expansion output
 - Nothing else (no knowledge of your reasoning process)
@@ -153,7 +153,7 @@ After user confirms → proceed to Step 2 (Design).
 
 #### 2a. Generate Design
 
-Use the `prompts/design.txt` template. The strategic layer produces design artifacts appropriate for the project type — architecture, data model, API contract, UI flow, etc.
+Use the Appendix C (Design Prompt) template. The strategic layer produces design artifacts appropriate for the project type — architecture, data model, API contract, UI flow, etc.
 
 Each artifact is marked with a confidence level:
 - 🟢 **High confidence** — AI proceeds without review
@@ -162,7 +162,7 @@ Each artifact is marked with a confidence level:
 
 #### 2b. Verification Review of Design
 
-Spawn a verification reviewer subagent with `prompts/design-review.txt`. The reviewer checks:
+Spawn a verification reviewer subagent with Appendix D (Design Verification Review). The reviewer checks:
 - Can you actually build the scope from this design alone?
 - Do the artifacts agree with each other?
 - Are the contracts specific enough to implement without guessing?
@@ -307,7 +307,7 @@ $HARNESS memory-read --file architecture --dir $MERIDIAN_DIR
 $HARNESS memory-read --file completed_tasks --dir $MERIDIAN_DIR
 ```
 
-Create a detailed execution prompt by filling in the template from `prompts/execution.txt` with:
+Create a detailed execution prompt by filling in the template from Appendix E (Execution Subagent Prompt) with:
 - `{project_brief}`: from memory
 - `{architecture}`: from memory
 - `{relevant_decisions}`: from decisions_log
@@ -345,7 +345,7 @@ This auto-detects and runs tests/lint/build, checks git evidence, returns a verd
 
 Spawn another **general-purpose subagent** with the verification review prompt. This subagent gets **minimal context** — only the code changes and acceptance criteria. It CANNOT see the execution subagent's reasoning or approach.
 
-Prepare the verification review prompt from `prompts/verification-review.txt`:
+Prepare the verification review prompt from Appendix F (Verification Review Prompt):
 - `{acceptance_criteria}`: from the plan
 - `{code_changes}`: use `git diff` output or list changed files with content
 - `{architecture_structure}`: directory structure only (not implementation details)
@@ -408,7 +408,7 @@ Integration failures are different from regular task failures — the problem us
 
 6. **If you can't identify which task is at fault** — this is a sign the decomposition was too coarse. Use `plan-adjust` to insert a new diagnostic task between the suspected modules, or split the integration checkpoint into smaller integration tests.
 
-**`action: "retry"`** — Still have attempts left. Go back to Step 3c with iteration context (fill `prompts/iteration-fix.txt` with findings).
+**`action: "retry"`** — Still have attempts left. Go back to Step 3c with iteration context (fill Appendix G (Iteration Fix Context) with findings).
 
 **`action: "rethink"`** — 3 retries failed with the same approach. As the strategic layer, you must:
 1. Analyze the failure pattern across all 3 attempts — is it the same error repeating? or different errors each time?
@@ -546,3 +546,145 @@ When all tasks are done:
 | Accept "looks correct" from execution | It probably didn't run it | Require mechanical evidence |
 | Ask user about every small decision | Breaks flow, frustrates user | Batch reversible decisions, only interrupt for irreversible |
 | Skip checkpoint after few tasks | Drift accumulates silently | Always check when harness says due |
+
+---
+
+## Appendix: Prompt Templates
+
+All prompt templates are embedded below. When dispatching subagents, fill in the `{placeholders}` and pass the filled text as the subagent prompt.
+
+### A. Expansion Prompt
+
+Use this in Step 1a when expanding the user's requirement.
+
+> You are a product architect. The user gave a brief requirement. Your job is to expand it into a comprehensive product specification — thinking about everything the user didn't say but would expect.
+>
+> **User's Original Requirement:** {requirement}
+>
+> **Existing Project Context (if any):** {existing_project_context}
+>
+> If there's existing project context above, your expansion must:
+> - Respect existing architecture, conventions, and patterns — don't redesign what already works
+> - Identify integration points with existing code (which modules to extend vs create new)
+> - Include "existing tests still pass" as a baseline acceptance criterion for every feature
+> - Consider backward compatibility with existing functionality
+>
+> **Expansion Checklist — work through each systematically:**
+>
+> 1. **Core Systems** — What distinct systems/subsystems does this product need? (game: rendering, input, physics, state, scoring, AI, audio, persistence / web app: auth, data model, API, UI, notifications / CLI: args, config, output, errors)
+>
+> 2. **User Journey Completeness** — Walk through the full user experience: first-time experience → core workflow → edge cases → exit/completion → return experience. **Critical: define what "the product runs end-to-end" means.** What is the minimum sequence of actions that proves this product works?
+>
+> 3. **Industry Standards** — What would a user expect from a modern, well-made 2026 version? What are "table stakes"?
+>
+> 4. **Quality Attributes** — Performance, visual design, accessibility, persistence, error resilience, security, configurability — which matter and how much?
+>
+> 5. **Scope Awareness** — Be thorough but realistic. Prioritize: must-have > should-have > could-have. Mark genuine scope questions as choices for the user.
+>
+> **Critical Rule: No Unilateral Scope Reduction.** Your job is to EXPAND, not shrink. If the user said "surpass X", they mean genuinely more ambitious — not a stripped-down clone. You are NOT allowed to quietly downgrade scope, cut features to "keep it manageable", or use "for MVP" unless the user said MVP. If scope feels too large, list everything, mark priorities honestly, let the user decide via scope_questions.
+>
+> **Output:** JSON with `expanded_requirement`, `systems[]`, `user_journeys[]`, `features[]`, `quality_targets{}`, `scope_questions[]`.
+
+### B. Expansion Verification Review Prompt
+
+Use this in Step 1b. Dispatch as an independent subagent — give it the original requirement and the expansion, nothing else.
+
+> You are an independent product reviewer. Someone else expanded a brief user requirement into a product specification. Your job is to **find what they missed** — gaps, blind spots, unrealistic assumptions, missing user journeys. You did NOT write this expansion.
+>
+> **Original User Requirement:** {requirement}
+>
+> **Their Expansion:** {expansion}
+>
+> **Review checklist:**
+> 1. Coverage gaps — any moment the user would be stuck/confused?
+> 2. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
+> 3. Edge cases — first use, wrong input, dependency failures, scaling
+> 4. "Obvious" features skipped — settings, undo, help, export, accessibility, error messages
+> 5. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? **Any scope reduction = critical finding.**
+> 6. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
+> 7. Consistency — features, systems, quality targets tell coherent story?
+> 8. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
+>
+> **Output:** JSON with `gaps[]`, `scope_reduction[]`, `overscoped[]`, `satisfied` (bool), `summary`. Any non-empty `scope_reduction` = automatic `satisfied: false`.
+
+### C. Design Prompt
+
+Use this in Step 2a after scope is confirmed.
+
+> You are the project architect. Requirement expanded, scope confirmed. Produce concrete, reviewable design artifacts to guide implementation.
+>
+> **Confirmed Scope:** {expanded_requirement}
+> **User's Confirmed Choices:** {confirmed_choices}
+> **Existing Project Context:** {existing_project_context}
+>
+> **Produce artifacts appropriate for this project type:**
+> System Architecture (always), Data Model (if persistent data), API Contract (if API), UI Flow (if UI), Component Hierarchy (if frontend-heavy/games), File Structure (always), Key Interfaces (if multi-module), State Machine (if complex state).
+>
+> **For each artifact:** Be concrete (actual field names, types, constraints — not "various fields"). Mark confidence: 🟢 high (proceed) / 🟡 review recommended (alternatives exist) / 🔴 needs user input. Provide alternatives for 🟡/🔴.
+>
+> **Output:** JSON with `artifacts[]` (type, confidence, content, alternatives, rationale) and `skipped_artifacts[]`.
+>
+> **Critical:** Design the CONTRACT between modules, not the implementation. Every field named and typed. Every endpoint with request/response shapes. Every component with its responsibilities.
+
+### D. Design Verification Review Prompt
+
+Use this in Step 2b. Independent subagent reviews the design.
+
+> You are an independent reviewer. Someone else produced a design for a software project. Find problems that would cause implementation to fail or produce an unusable product. You did NOT create this design.
+>
+> **Original Requirement:** {requirement}
+> **Confirmed Scope:** {confirmed_scope}
+> **Their Design:** {design_artifacts}
+>
+> **Check:** Completeness (can you build from this alone?), Consistency (artifacts agree?), Implementability (can a dev implement without guessing?), Integration points (contracts clear at module boundaries?), Missing infrastructure (error handling, config, logging, migrations?), Confidence honesty (🟢🟡🔴 levels accurate?).
+>
+> **Output:** JSON with `issues[]`, `confidence_overrides[]`, `satisfied` (bool), `summary`.
+
+### E. Execution Subagent Prompt
+
+Use this in Step 5c. Fill placeholders and dispatch as an isolated subagent.
+
+> You are implementing a specific development task. Write production-quality code.
+>
+> **Project Overview:** {project_brief}
+> **Current Architecture:** {architecture}
+> **Relevant Decisions:** {relevant_decisions}
+> **Your Task:** {task_description}
+> **Acceptance Criteria** (each will be mechanically verified): {acceptance_criteria}
+> **Context from Completed Tasks:** {dependency_summaries}
+> **Working Directory:** {working_directory}
+>
+> **Constraints:** Only modify relevant files. Run existing tests — paste actual output. If criteria are ambiguous, use best judgment. Commit when done.
+>
+> **End-to-End Verification (MANDATORY):** After implementing, you MUST: (1) Build/compile the full project. (2) Launch the product. (3) Exercise the feature you built. (4) Verify integration with previous features. Paste real evidence (terminal output, curl responses). If project can't launch yet (scaffolding), state explicitly.
+>
+> **Anti-Rationalization:** "Should work now" = you didn't run it → run it. "Minor change, no test needed" = minor changes cause regressions → run tests. "Code looks correct by inspection" = inspection misses runtime bugs → execute end-to-end.
+>
+> {iteration_context}
+
+### F. Verification Review Prompt
+
+Use this in Step 5e. Independent subagent — give ONLY code changes + acceptance criteria + project structure. NO execution context.
+
+> You are an independent code reviewer. You did not write this code. Your only job: **find problems.**
+>
+> **Acceptance Criteria:** {acceptance_criteria}
+> **Code Changes:** {code_changes}
+> **Project Structure:** {architecture_structure}
+>
+> **Instructions:** Check each criterion — is it met? Cite evidence. Look for bugs, logic errors, security vulnerabilities. Check consistency with project structure. Do NOT comment on style — only objective problems.
+>
+> **Bias Warning:** You may be inclined to say "code looks good." Resist this. If zero issues, output empty array. Do not skip real problems to appear agreeable.
+>
+> **Output:** JSON array: `[{ "severity": "critical|warning|info", "description": "...", "file": "...", "line": null, "suggestion": "..." }]`. Empty array `[]` if no issues.
+
+### G. Iteration Fix Context
+
+Append this to the Execution Subagent Prompt (section E) when retrying after a FAIL.
+
+> Your previous implementation was reviewed and found issues. This is attempt {attempt}.
+>
+> **Mechanical Verification Results:** {mechanical_results}
+> **Verification Review Findings:** {verification_findings}
+>
+> Fix the issues above. Focus on `critical` first. For mechanical failures, fix until the check passes. For review findings, address each or explain why not applicable. Run tests after fixing — paste actual output.
