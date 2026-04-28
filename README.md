@@ -51,31 +51,81 @@ The verification layer participates in two phases:
 
 Each time it's a fresh subagent instance with minimal context — it can't see reasoning, only output.
 
-## Protocol (9 Steps)
+## Protocol
 
 ```
-Step 0  Initialize (detect new/active/archived run + existing project)
-Step 1  Requirement Expansion
-         1a. Strategic layer expands brief → comprehensive product spec
-         1b. Verification reviewer checks expansion for gaps
-         1c. Iterate until reviewer is satisfied (escalation ladder if stuck)
-         1d. Present scope to user (multiple-choice confirmation)
-Step 2  Design Phase ← NEW
-         2a. Produce concrete design artifacts (architecture, data model, API, UI flow...)
-         2b. Verification review of design (completeness, consistency, implementability)
-         2c. Present design to user (🟢 proceed / 🟡 review / 🔴 need input)
-Step 3  Strategic Decomposition (confirmed design → task list with acceptance criteria)
-Step 4  Handle Decisions (irreversible → block, reversible → batch)
-Step 5  Task Execution Loop
-         5a. Refine task → spawn execution subagent
-         5b. Mandatory E2E verification (launch product, exercise the feature)
-         5c. Mechanical verification (tests/lint/build)
-         5d. Verification review (isolated context)
-         5e. Synthesize verdict (mechanical > verification review > self-report)
-         5f. Handle verdict (PASS → next, FAIL → escalation ladder)
-Step 6  Checkpoint (backtracking, plan adjustment, requirement evolution)
-Step 7  Status Notifications
-Step 8  Completion (mark run complete → archive on next invocation)
+/meridian <requirement>
+│
+▼
+Step 0 — Initialize
+│  Detect project state:
+│  ├── First time → create .meridian/
+│  ├── Active run → append requirement to current plan (jump to Step 3)
+│  └── Previous completed → archive old run, start fresh (memory preserved)
+│  Detect codebase:
+│  ├── Existing project → scan architecture/tests/conventions, store in memory
+│  └── Empty project → proceed
+│
+▼
+Step 1 — Requirement Expansion ··················· 👤 User checkpoint 1/2
+│  1a. Strategic layer expands requirement (systems, user journeys, quality)
+│  1b. Verification reviewer checks expansion (independent subagent, finds gaps)
+│  1c. Iterate until reviewer satisfied (escalation ladder if stuck)
+│  1d. Present scope to user (core features ✅ + optional features A/B)
+│
+▼
+Step 2 — Design Phase ···························· 👤 User checkpoint 2/2
+│  2a. Generate design artifacts (architecture, data model, API, UI flow...)
+│  2b. Verification reviewer checks design (completeness, consistency)
+│  2c. Present to user (🟢 high confidence / 🟡 review / 🔴 needs input)
+│  → Confirmed design stored as binding contract in memory
+│
+▼ ─── Fully autonomous below — user only involved on escalation ───
+│
+Step 3 — Strategic Decomposition
+│  Confirmed design → structured task list (JSON)
+│  Integration checkpoints every 3-4 build tasks
+│  Final task = end-to-end validation
+│
+Step 4 — Handle Decisions
+│  Irreversible → block immediately, ask user (multiple-choice)
+│  Reversible → use recommended, batch 3+ then confirm
+│
+Step 5 — Task Execution Loop ←────────────────────┐
+│  for each task:                                  │
+│    5a. Check dependencies ready                  │
+│    5b. Strategic layer refines task               │
+│    5c. Execution subagent writes code (isolated)  │
+│        └─ Must E2E verify: launch + use feature  │
+│    5d. Mechanical verifier (tests/lint/build)     │
+│    5e. Verification reviewer (isolated context)   │
+│    5f. Synthesize verdict:                        │
+│        mechanical FAIL → FAIL                    │
+│        + reviewer critical → FAIL                │
+│        all clear → PASS                          │
+│    5g. Handle verdict:                            │
+│        PASS → update memory, next task            │
+│        FAIL → escalation ladder:                 │
+│          retry(3x) → rethink → split             │
+│          → skip → escalate to user               │
+│        Integration FAIL → diagnose root cause     │
+│          → task-reopen → cascade reverify ────────┘
+│
+Step 6 — Checkpoint (every N tasks)
+│  Strategic layer reviews globally:
+│  ├── Consistency check (interface conflicts?)
+│  ├── Direction check (drifting from goal?)
+│  ├── Plan adjustment (add/remove/update tasks)
+│  ├── Task backtracking (reopen → reverify cascade)
+│  └── Batch decision report if due
+│
+Step 7 — Status Notifications
+│  [Meridian] ✅ T1 complete | ⏳ T2 executing | Progress 1/8
+│  [Meridian] ❌ T2 FAIL (attempt 1/3) — retrying
+│  [Meridian] 🔴 T3 blocked — escalating with analysis + options
+│
+Step 8 — Completion
+   Mark run complete → next /meridian auto-archives, memory preserved
 ```
 
 ## Failure Recovery
