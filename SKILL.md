@@ -145,11 +145,70 @@ Reply "add: <feature>" to add something I missed.
 Reply "skip: <feature>" to remove something.
 ```
 
-After user confirms → proceed to Step 2 (Decomposition).
+After user confirms → proceed to Step 2 (Design).
 
-### Step 2 — Strategic Decomposition
+### Step 2 — Design Phase
 
-You are the strategic layer. Read the user's requirement and decompose it into a structured task plan.
+**Purpose:** Produce concrete design artifacts BEFORE implementation starts. These artifacts become the binding contract that guides all autonomous execution. Getting the design right here prevents "built the wrong thing" failures that no amount of code-level verification can catch.
+
+#### 2a. Generate Design
+
+Use the `prompts/design.txt` template. The strategic layer produces design artifacts appropriate for the project type — architecture, data model, API contract, UI flow, etc.
+
+Each artifact is marked with a confidence level:
+- 🟢 **High confidence** — AI proceeds without review
+- 🟡 **Review recommended** — user should glance, alternatives provided
+- 🔴 **Needs input** — can't determine without user preference
+
+#### 2b. Verification Review of Design
+
+Spawn a verification reviewer subagent with `prompts/design-review.txt`. The reviewer checks:
+- Can you actually build the scope from this design alone?
+- Do the artifacts agree with each other?
+- Are the contracts specific enough to implement without guessing?
+- Are the confidence levels honest?
+
+Iterate until the reviewer is satisfied (same escalation ladder as requirement expansion).
+
+#### 2c. Present Design to User
+
+Format the design for review — **highlight 🟡 and 🔴 items, minimize noise from 🟢 items:**
+
+```
+[Meridian] 🏗️ Design Review
+
+🟢 High confidence (will proceed unless you object):
+  • File structure: src/{api,models,services,utils}/
+  • Error handling: custom exception classes + global handler
+  • Config: environment variables via python-dotenv
+
+🟡 Review recommended:
+  1. Data Model:
+     → [Current] PostgreSQL with SQLAlchemy ORM
+     → [Alt] SQLite for simpler deployment
+  2. Auth approach:
+     → [Current] JWT with refresh tokens
+     → [Alt] Session-based cookies
+
+🔴 Need your input:
+  3. API style:
+     → [A] REST with OpenAPI spec
+     → [B] GraphQL
+     → [C] gRPC
+
+Reply: 1A 2A 3A (or Enter for all current/recommended)
+```
+
+After user confirms → store ALL design artifacts in memory:
+```bash
+$HARNESS memory-update --file architecture --content "<full design document: all artifacts consolidated>" --dir $MERIDIAN_DIR
+```
+
+This architecture file now becomes the **binding contract** for all execution. Every task must implement against this design, and every verification checks conformance to it.
+
+### Step 3 — Strategic Decomposition
+
+You are the strategic layer. Read the **confirmed design** and decompose it into a structured task plan.
 
 **Think through:**
 1. What is the user actually asking for? What are the implicit requirements?
@@ -209,7 +268,7 @@ $HARNESS memory-update --file project_brief --content "<project brief based on r
 $HARNESS memory-update --file architecture --content "<initial architecture overview>" --dir $MERIDIAN_DIR
 ```
 
-### Step 3 — Handle Decisions
+### Step 4 — Handle Decisions
 
 Register any pending decisions:
 ```bash
@@ -232,14 +291,14 @@ If `due: true` but `immediate: false` (reversible only, batched):
 - Use recommended options and continue
 - Accumulate until report is due with 3+ items, then batch-ask user
 
-### Step 4 — Task Execution Loop
+### Step 5 — Task Execution Loop
 
 For each task in dependency order:
 
-#### 4a. Check if task is ready
+#### 5a. Check if task is ready
 All dependencies must be done. Check via `$HARNESS task-status --task <dep_id> --dir $MERIDIAN_DIR`.
 
-#### 4b. Refine the task
+#### 5b. Refine the task
 As the strategic layer, refine the coarse task into specific implementation instructions. Read current memory to understand what's been built:
 
 ```bash
@@ -257,7 +316,7 @@ Create a detailed execution prompt by filling in the template from `prompts/exec
 - `{dependency_summaries}`: summaries of completed dependency tasks
 - `{iteration_context}`: empty on first attempt
 
-#### 4c. Dispatch Execution Subagent
+#### 5c. Dispatch Execution Subagent
 
 Spawn a **general-purpose subagent** with the execution prompt. This subagent has its own isolated context — it cannot see the strategic layer's reasoning.
 
@@ -272,7 +331,7 @@ The subagent will:
 3. Run any available tests
 4. Report what it did
 
-#### 4d. Collect Evidence & Run Mechanical Verification
+#### 5d. Collect Evidence & Run Mechanical Verification
 
 After the execution subagent completes:
 
@@ -282,7 +341,7 @@ $HARNESS verify --dir $MERIDIAN_DIR
 
 This auto-detects and runs tests/lint/build, checks git evidence, returns a verdict JSON.
 
-#### 4e. Dispatch Verification Reviewer
+#### 5e. Dispatch Verification Reviewer
 
 Spawn another **general-purpose subagent** with the verification review prompt. This subagent gets **minimal context** — only the code changes and acceptance criteria. It CANNOT see the execution subagent's reasoning or approach.
 
@@ -298,7 +357,7 @@ prompt = <the filled verification review prompt>
 
 Parse the subagent's JSON output as findings array.
 
-#### 4f. Synthesize Verdict
+#### 5f. Synthesize Verdict
 
 Combine mechanical verification and verification review:
 
@@ -308,7 +367,7 @@ ELSE IF verification review findings contain any "critical" severity → overall
 ELSE → overall PASS
 ```
 
-#### 4g. Handle Verdict
+#### 5g. Handle Verdict
 
 **On PASS:**
 ```bash
@@ -382,8 +441,7 @@ Integration failures are different from regular task failures — the problem us
    → [C] Manual: I'll provide specific guidance for the implementation
    ```
 
-### Step 5 — Checkpoint
-
+### Step 6 — Checkpoint
 After each task completes (PASS), check if a checkpoint is due:
 
 ```bash
@@ -429,7 +487,7 @@ $HARNESS report-due --dir $MERIDIAN_DIR
 
 If due, format and present to user.
 
-### Step 5b — Handle reverify tasks
+### Step 6b — Handle reverify tasks
 
 After a checkpoint that reopened tasks, some downstream tasks may be in `reverify` status. For each:
 
@@ -437,7 +495,7 @@ After a checkpoint that reopened tasks, some downstream tasks may be in `reverif
 2. If PASS → mark back to `done`
 3. If FAIL → treat as a normal failure (enter the execution-verify iteration loop)
 
-### Step 5c — Requirement Evolution (Layer 4)
+### Step 6c — Requirement Evolution (Layer 4)
 
 If the user invokes `/meridian <new requirement>` while a run is active (detected via `mode: "active"` in Step 0):
 
@@ -446,7 +504,7 @@ If the user invokes `/meridian <new requirement>` while a run is active (detecte
 3. Use `$HARNESS plan-adjust` to add new tasks with correct dependencies on existing tasks
 4. Continue the task execution loop — new tasks will be picked up in dependency order
 
-### Step 6 — Status Notifications
+### Step 7 — Status Notifications
 
 After each significant event, print a one-line status to the user:
 
@@ -459,7 +517,7 @@ After each significant event, print a one-line status to the user:
 [Meridian] 🔴 T3 blocked after all strategies — need your input
 ```
 
-### Step 7 — Completion
+### Step 8 — Completion
 
 When all tasks are done:
 

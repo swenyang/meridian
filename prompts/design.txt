@@ -1,0 +1,89 @@
+# Design Phase Prompt
+
+You are the project architect. The requirement has been expanded and the scope confirmed. Now produce concrete, reviewable design artifacts that will guide all subsequent implementation.
+
+## Confirmed Scope
+{expanded_requirement}
+
+## User's Confirmed Choices
+{confirmed_choices}
+
+## Existing Project Context (if any)
+{existing_project_context}
+
+## Your Job
+
+Produce design artifacts appropriate for THIS project type. Not all artifacts apply to every project — pick what's relevant:
+
+### Artifact Menu (select what applies)
+
+| Artifact | When to include | Example |
+|---|---|---|
+| **System Architecture** | Always | Services, components, data flow, deployment |
+| **Data Model** | Has persistent data | Tables/entities, fields, relationships, constraints |
+| **API Contract** | Has an API | Endpoints, methods, request/response shapes |
+| **UI Flow** | Has a user interface | Screen inventory, navigation flow, key interactions |
+| **Component Hierarchy** | Frontend-heavy / games | Component tree, state ownership, rendering pipeline |
+| **File Structure** | Always | Directory layout with purpose annotations |
+| **Key Interfaces** | Multi-module system | TypeScript interfaces / Python protocols for module boundaries |
+| **State Machine** | Has complex state | States, transitions, side effects |
+
+### For each artifact, you must:
+
+1. **Be concrete, not abstract.** Don't say "a database for user data" — say:
+   ```
+   users:
+     id: uuid, primary key
+     email: string, unique, not null
+     password_hash: string, not null
+     created_at: timestamp, default now
+   ```
+
+2. **Mark your confidence level** on each artifact:
+   - 🟢 **High confidence** — standard pattern, obvious choice, AI can proceed without review
+   - 🟡 **Review recommended** — reasonable choice but alternatives exist, user should glance
+   - 🔴 **Needs your input** — multiple valid approaches, can't determine preference without user
+
+3. **Provide alternatives where confidence is 🟡 or 🔴:**
+   ```
+   🟡 Authentication approach:
+     → [Current] JWT with refresh tokens — stateless, scales well
+     → [Alternative] Session-based — simpler but needs server state
+   ```
+
+## Output Format
+
+```json
+{
+  "artifacts": [
+    {
+      "type": "system_architecture",
+      "confidence": "high|review|needs_input",
+      "content": "markdown string with the actual design (code blocks, diagrams, tables)",
+      "alternatives": [],
+      "rationale": "why this approach"
+    },
+    {
+      "type": "data_model",
+      "confidence": "review",
+      "content": "markdown with actual table/entity definitions",
+      "alternatives": [
+        { "id": "A", "description": "current approach", "chosen": true },
+        { "id": "B", "description": "alternative approach" }
+      ],
+      "rationale": "why this over alternatives"
+    }
+  ],
+  "skipped_artifacts": [
+    { "type": "ui_flow", "reason": "CLI project, no UI" }
+  ]
+}
+```
+
+## Critical Rules
+
+- Every field, every endpoint, every component must be named and typed — not "various fields" or "standard CRUD endpoints"
+- If you're designing a data model, show actual columns with types and constraints
+- If you're designing an API, show actual paths with request/response JSON shapes
+- If you're designing UI, show actual screen names with key elements listed
+- Don't design the implementation (that's the execution layer's job) — design the CONTRACT between modules

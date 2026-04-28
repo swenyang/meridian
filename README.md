@@ -51,26 +51,31 @@ The verification layer participates in two phases:
 
 Each time it's a fresh subagent instance with minimal context — it can't see reasoning, only output.
 
-## Protocol (8 Steps)
+## Protocol (9 Steps)
 
 ```
-Step 0  Initialize (.meridian/ directory)
+Step 0  Initialize (detect new/active/archived run + existing project)
 Step 1  Requirement Expansion
          1a. Strategic layer expands brief → comprehensive product spec
          1b. Verification reviewer checks expansion for gaps
          1c. Iterate until reviewer is satisfied (escalation ladder if stuck)
          1d. Present scope to user (multiple-choice confirmation)
-Step 2  Strategic Decomposition (product spec → task list with acceptance criteria)
-Step 3  Handle Decisions (irreversible → block, reversible → batch)
-Step 4  Task Execution Loop
-         4a. Refine task → spawn execution subagent
-         4b. Mechanical verification (tests/lint/build)
-         4c. Verification review (isolated context)
-         4d. Synthesize verdict (mechanical > verification review > self-report)
-         4e. Handle verdict (PASS → next, FAIL → escalation ladder)
-Step 5  Checkpoint (backtracking, plan adjustment, requirement evolution)
-Step 6  Status Notifications
-Step 7  Completion
+Step 2  Design Phase ← NEW
+         2a. Produce concrete design artifacts (architecture, data model, API, UI flow...)
+         2b. Verification review of design (completeness, consistency, implementability)
+         2c. Present design to user (🟢 proceed / 🟡 review / 🔴 need input)
+Step 3  Strategic Decomposition (confirmed design → task list with acceptance criteria)
+Step 4  Handle Decisions (irreversible → block, reversible → batch)
+Step 5  Task Execution Loop
+         5a. Refine task → spawn execution subagent
+         5b. Mandatory E2E verification (launch product, exercise the feature)
+         5c. Mechanical verification (tests/lint/build)
+         5d. Verification review (isolated context)
+         5e. Synthesize verdict (mechanical > verification review > self-report)
+         5f. Handle verdict (PASS → next, FAIL → escalation ladder)
+Step 6  Checkpoint (backtracking, plan adjustment, requirement evolution)
+Step 7  Status Notifications
+Step 8  Completion (mark run complete → archive on next invocation)
 ```
 
 ## Failure Recovery
