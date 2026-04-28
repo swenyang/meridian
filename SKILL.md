@@ -117,7 +117,7 @@ If progress stalls (reviewer keeps finding new gaps after multiple rounds), appl
 
 Format the finalized expansion as a scope confirmation — **选择题, not open-ended**.
 
-**IMPORTANT:** If the product requires external dependencies (API keys, model access, database connections), include a "Setup required" section. The user must confirm access BEFORE you proceed — never ask for credentials mid-execution.
+**IMPORTANT:** If the product requires things only the user can provide (API keys, credentials, access to private systems), include a "Setup required" section. Only list things the agent CANNOT obtain itself — test data, public datasets, sample files should be sourced by the agent autonomously.
 
 ```
 [Meridian] 📋 Scope confirmation for: "build an Excel parser"
@@ -130,7 +130,7 @@ Will build:
   ✅ Schema inference + type coercion
   ✅ Output: JSON, CSV, SQLite, Parquet
   ✅ Data lineage / provenance
-  ✅ Eval framework (200+ files with ground truth)
+  ✅ Eval framework (200+ files — agent will source/generate test data)
   ...
 
 Scope questions (your call):
@@ -143,11 +143,9 @@ Scope questions (your call):
      → [A] CLI + library only (recommended for v1)
      → [B] Include REST API
 
-⚠️ Setup required BEFORE implementation:
-  🔑 LLM API key — provide your API key for the chosen provider
+⚠️ Setup required (only things I can't get myself):
+  🔑 LLM API key — provide for your chosen provider
      (will be stored in .env, never committed)
-  📁 Test Excel files — provide 5-10 real-world Excel files for eval
-     (place in tests/fixtures/)
 
 Reply with choices (e.g., "1A 2A") or Enter for all recommended.
 Reply "add: <feature>" to add something I missed.
@@ -663,11 +661,11 @@ Use this in Step 1a when expanding the user's requirement.
 >
 > **=== NON-NEGOTIABLE RULES (read these FIRST) ===**
 >
-> **RULE 1: The chosen technical approach is ALWAYS will-build.** If your analysis concludes "need LLM/AI for this problem," then LLM integration goes in will-build. It CANNOT appear as optional, skippable, or a scope question. The scope question can be WHICH provider (OpenAI/Azure/local), but not WHETHER to include it. If you find yourself writing "Optional LLM" or "Skip LLM for v1" after your own analysis said LLM is needed — you are contradicting yourself. Stop and fix it.
+> **RULE 1: Your own technical analysis binds your feature list.** If step 1 concludes "technique X is needed to solve the core challenge," then technique X is will-build — not optional, not a scope question with a skip option. You can ask the user to choose between implementations/providers of X, but you cannot offer to skip X entirely. Check yourself: does your feature list contradict your own technical analysis?
 >
-> **RULE 2: External dependencies must be resolved upfront.** If the product needs an API key, model access, database connection, or any external service — this must be listed in the scope confirmation (Step 1d) so the user provides access BEFORE implementation starts. Do NOT defer this to design or execution phase. The user should never be interrupted mid-build for credentials.
+> **RULE 2: Only ask users for things the agent can't get itself.** API keys, private credentials, proprietary data, paid accounts — these need user confirmation upfront at scope confirmation (Step 1d). But test data, sample files, public datasets — the agent should find, download, or generate these autonomously. Don't burden the user with tasks the agent can do.
 >
-> **RULE 3: No "deferred to v1.1" dumping ground.** Either a feature is will-build, or it's a scope question. "Deferred" is just a renamed should-have that gets silently dropped.
+> **RULE 3: No dumping ground categories.** "Deferred to v1.1", "nice-to-have", "future work" — these are ways to avoid hard decisions. Either it's will-build, or it's a scope question where the user explicitly chooses. Every feature must be in one of those two buckets.
 >
 > **=== END RULES ===**
 >
@@ -716,8 +714,8 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 >    - Jumping straight to "smart detection" or "intelligent analysis" without specifying WHAT technique powers the intelligence (LLM? ML model? pattern matching?). Buzzwords are not technical approaches.
 >    - Missing the question: "What happens when the input doesn't match any expected pattern?" If the answer is undefined, the approach is fragile.
 >    - If the problem domain involves understanding human-created content (documents, spreadsheets, forms, emails), and the approach is purely algorithmic with no AI/LLM component, this is almost certainly a critical gap.
->    - **PRIORITY GAMING CHECK:** If the technical challenge analysis concluded "need technique X" but technique X appears in should-have/could-have/optional/scope-question-with-skip instead of will-build — that's a critical contradiction. The core technical solution cannot be optional. Specifically watch for: "Optional LLM", "Skip LLM for v1", "LLM-assisted (if enabled)", "heuristic with optional AI fallback". If the analysis says the naive approach fails without AI/LLM, then AI/LLM is will-build.
->    - **DEFERRED DUMPING CHECK:** Is there a "Deferred to v1.1" or similar section? This is a banned category. Each item must be either will-build or an explicit scope question.
+>    - **PRIORITY GAMING CHECK:** If the technical challenge analysis concluded "need technique X" but technique X appears as optional, skippable, or a scope question with a "skip entirely" option — that's a critical contradiction. The core technical solution cannot be optional. Check: does the feature list contradict the technical analysis?
+>    - **DEFERRED DUMPING CHECK:** Is there a "Deferred to v1.1", "nice-to-have", or "future work" section? This is a banned category. Each item must be either will-build or an explicit scope question.
 > 2. Coverage gaps — any moment the user would be stuck/confused?
 > 3. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
 > 4. Edge cases — first use, wrong input, dependency failures, scaling
