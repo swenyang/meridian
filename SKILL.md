@@ -120,7 +120,7 @@ Format the finalized expansion as a scope confirmation — **选择题, not open
 ```
 [Meridian] 📋 Scope confirmation for: "build a Tetris game"
 
-Core features (will build):
+Will build:
   ✅ Grid rendering + piece movement + rotation
   ✅ Collision detection + line clearing
   ✅ Scoring system with levels and speed progression
@@ -130,19 +130,16 @@ Core features (will build):
   ✅ High score persistence (local storage)
   ✅ Keyboard controls + pause/resume
 
-Optional features:
+Scope questions (your call):
   → [A] Include sound effects (recommended)
   → [B] Skip sound effects
 
   → [A] Include mobile touch controls (recommended)
   → [B] Desktop only
 
-  → [A] Include dark/light theme
-  → [B] Single theme
-
-Reply with choices (e.g., "A A B") or Enter for all recommended.
+Reply with choices (e.g., "A A") or Enter for all recommended.
 Reply "add: <feature>" to add something I missed.
-Reply "skip: <feature>" to remove something.
+Reply "skip: <feature>" to remove something from will-build.
 ```
 
 After user confirms → proceed to Step 2 (Design).
@@ -658,6 +655,7 @@ Use this in Step 1a when expanding the user's requirement.
 >    - **Better approaches:** What techniques actually solve this? (ML, semantic understanding, AST parsing, constraint solving, etc.)
 >    - **Chosen approach and why:** Which approach fits this project's constraints?
 >    This analysis is NOT optional. If you skip it, you'll design a system around the wrong technical foundation and everything built on top will be wrong.
+>    **CRITICAL: Whatever technique you identify as the "chosen approach" here is automatically a must-have feature. You cannot put the core technical solution in "should-have" or "could-have". If your analysis says "need LLM semantic understanding", then LLM integration is must-have, period.**
 >
 > 2. **Core Systems** — What distinct systems/subsystems does this product need? (game: rendering, input, physics, state, scoring, AI, audio, persistence / web app: auth, data model, API, UI, notifications / CLI: args, config, output, errors)
 >
@@ -667,7 +665,10 @@ Use this in Step 1a when expanding the user's requirement.
 >
 > 5. **Quality Attributes** — Performance, visual design, accessibility, persistence, error resilience, security, configurability — which matter and how much?
 >
-> 6. **Scope Awareness** — Be thorough but realistic. Prioritize: must-have > should-have > could-have. Mark genuine scope questions as choices for the user.
+> 6. **Feature Categorization** — Categorize features into two groups ONLY:
+>    - **Will build:** Everything the product needs to fulfill the user's requirement. This includes ALL features needed for the core technical approach to work. If in doubt, it goes here.
+>    - **Scope questions:** Features where genuine trade-offs exist and the user should decide. Present as choices with recommendation.
+>    Do NOT use "should-have" or "could-have" categories. These labels encourage putting important features in a "maybe" bucket where they get silently dropped. If a feature is needed for the product to work as described, it's "will build". If it's genuinely optional, make it a scope question and let the user decide.
 >
 > **Critical Rule: No Unilateral Scope Reduction.** Your job is to EXPAND, not shrink. If the user said "surpass X", they mean genuinely more ambitious — not a stripped-down clone. You are NOT allowed to quietly downgrade scope, cut features to "keep it manageable", or use "for MVP" unless the user said MVP. If scope feels too large, list everything, mark priorities honestly, let the user decide via scope_questions.
 >
@@ -689,11 +690,12 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 >    - Jumping straight to "smart detection" or "intelligent analysis" without specifying WHAT technique powers the intelligence (LLM? ML model? pattern matching?). Buzzwords are not technical approaches.
 >    - Missing the question: "What happens when the input doesn't match any expected pattern?" If the answer is undefined, the approach is fragile.
 >    - If the problem domain involves understanding human-created content (documents, spreadsheets, forms, emails), and the approach is purely algorithmic with no AI/LLM component, this is almost certainly a critical gap.
+>    - **PRIORITY GAMING CHECK:** If the technical challenge analysis concluded "need technique X" but technique X appears in should-have/could-have/optional instead of will-build — that's a critical contradiction. The core technical solution cannot be optional.
 > 2. Coverage gaps — any moment the user would be stuck/confused?
 > 3. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
 > 4. Edge cases — first use, wrong input, dependency failures, scaling
 > 5. "Obvious" features skipped — settings, undo, help, export, accessibility, error messages
-> 6. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? **Any scope reduction = critical finding.**
+> 6. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? Features placed in "should-have" or "optional" that are clearly needed for the product to work as described? **Any scope reduction = critical finding.**
 > 7. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
 > 8. Consistency — features, systems, quality targets tell coherent story?
 > 9. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
