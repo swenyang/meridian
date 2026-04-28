@@ -376,6 +376,7 @@ Prepare the verification review prompt from Appendix F (Verification Review Prom
 - `{acceptance_criteria}`: from the plan
 - `{code_changes}`: use `git diff` output or list changed files with content
 - `{architecture_structure}`: directory structure only (not implementation details)
+- `{will_build_features}`: list of all will-build features from the confirmed scope — the reviewer checks these are ACTUALLY USED in the code, not just present as dead code
 
 ```
 Task tool: agent_type="general-purpose"
@@ -802,7 +803,7 @@ Use this in Step 5c. Fill placeholders and dispatch as an isolated subagent.
 >
 > **Constraints:** Only modify relevant files. Run existing tests — paste actual output. If criteria are ambiguous, use best judgment. Commit when done.
 >
-> **End-to-End Verification (MANDATORY):** After implementing, you MUST: (1) Build/compile the full project. (2) Launch the product. (3) Exercise the feature you built. (4) Verify integration with previous features. Paste real evidence (terminal output, curl responses). If project can't launch yet (scaffolding), state explicitly.
+> **End-to-End Verification (MANDATORY):** After implementing, you MUST: (1) Build/compile the full project. (2) Launch the product. (3) Exercise the feature you built. (4) Verify integration with previous features. (5) **If this task involves a will-build feature (e.g., LLM integration), demonstrate it is ACTUALLY CALLED with real input and produces real output — not mocked, not stubbed, not behind a disabled config flag.** Paste real evidence (terminal output, API call logs, curl responses). If project can't launch yet (scaffolding), state explicitly.
 >
 > **Anti-Rationalization:** "Should work now" = you didn't run it → run it. "Minor change, no test needed" = minor changes cause regressions → run tests. "Code looks correct by inspection" = inspection misses runtime bugs → execute end-to-end.
 >
@@ -817,8 +818,14 @@ Use this in Step 5e. Independent subagent — give ONLY code changes + acceptanc
 > **Acceptance Criteria:** {acceptance_criteria}
 > **Code Changes:** {code_changes}
 > **Project Structure:** {architecture_structure}
+> **Will-Build Features:** {will_build_features}
 >
-> **Instructions:** Check each criterion — is it met? Cite evidence. Look for bugs, logic errors, security vulnerabilities. Check consistency with project structure. Do NOT comment on style — only objective problems.
+> **Instructions:**
+> 1. Check each acceptance criterion — is it met? Cite evidence.
+> 2. Look for bugs, logic errors, security vulnerabilities.
+> 3. Check consistency with project structure.
+> 4. Do NOT comment on style — only objective problems.
+> 5. **Will-build usage check (CRITICAL):** For each will-build feature listed above, verify it is ACTUALLY USED in the product's real code path — not just imported, not just in test mocks, not behind a disabled flag. If a will-build feature exists as code but is never called in the E2E flow (e.g., LLM client exists but every code path uses the heuristic fallback), that is a CRITICAL finding. Dead will-build code is worse than missing code — it creates the illusion of capability.
 >
 > **Bias Warning:** You may be inclined to say "code looks good." Resist this. If zero issues, output empty array. Do not skip real problems to appear agreeable.
 >
