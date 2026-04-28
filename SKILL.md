@@ -684,7 +684,11 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 > **Their Expansion:** {expansion}
 >
 > **Review checklist:**
-> 1. **Technical depth (CRITICAL)** — Did the expansion identify the CORE TECHNICAL CHALLENGE? Did it analyze why naive approaches fail? If the expansion jumps straight to "use heuristic rules" or "parse with regex" without considering why that breaks in real-world scenarios, that's a critical gap. The expansion must show it thought deeply about the problem, not just listed features.
+> 1. **Technical depth (CRITICAL)** — Did the expansion identify the CORE TECHNICAL CHALLENGE? Did it analyze why naive approaches fail? Specific red flags:
+>    - Proposing heuristic/rule-based approaches for problems that require semantic understanding (e.g., parsing unstructured documents, understanding messy real-world data, classifying ambiguous content). Rules work for clean data; real-world data is never clean.
+>    - Jumping straight to "smart detection" or "intelligent analysis" without specifying WHAT technique powers the intelligence (LLM? ML model? pattern matching?). Buzzwords are not technical approaches.
+>    - Missing the question: "What happens when the input doesn't match any expected pattern?" If the answer is undefined, the approach is fragile.
+>    - If the problem domain involves understanding human-created content (documents, spreadsheets, forms, emails), and the approach is purely algorithmic with no AI/LLM component, this is almost certainly a critical gap.
 > 2. Coverage gaps — any moment the user would be stuck/confused?
 > 3. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
 > 4. Edge cases — first use, wrong input, dependency failures, scaling
@@ -693,6 +697,8 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 > 7. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
 > 8. Consistency — features, systems, quality targets tell coherent story?
 > 9. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
+> 10. **Eval strategy** — for AI/ML projects: is there an eval dataset spec, accuracy metrics, and ground truth source? Without eval, you can't verify the product works. Missing = critical gap.
+> 11. **External dependencies** — does the product need API keys, external services, credentials? Are they explicitly listed? Missing = critical gap (user can't build it without knowing what accounts to set up).
 >
 > **Output:** JSON with `gaps[]`, `scope_reduction[]`, `overscoped[]`, `satisfied` (bool), `summary`. Any non-empty `scope_reduction` = automatic `satisfied: false`.
 
