@@ -275,6 +275,19 @@ $HARNESS memory-update --file project_brief --content "<project brief based on r
 $HARNESS memory-update --file architecture --content "<initial architecture overview>" --dir $MERIDIAN_DIR
 ```
 
+**If the project has eval targets** (AI/ML projects, parsers, anything with accuracy goals), create `.meridian/eval_config.json`:
+```json
+{
+  "eval_command": "python -m myproject eval --json",
+  "targets": {
+    "table_detection": { "metric": "table_detection_f1", "min": 0.85 },
+    "header_accuracy": { "metric": "header_accuracy", "min": 0.85 },
+    "field_accuracy": { "metric": "field_accuracy", "min": 0.85 }
+  }
+}
+```
+The mechanical verifier will run this command and **reject any task completion where metrics fall below targets**. This is NOT optional — if the plan defines accuracy goals, they must be mechanically enforced.
+
 ### Step 4 — Handle Decisions
 
 Register any pending decisions:
@@ -346,7 +359,14 @@ After the execution subagent completes:
 $HARNESS verify --dir $MERIDIAN_DIR
 ```
 
-This auto-detects and runs tests/lint/build, checks git evidence, returns a verdict JSON.
+The mechanical verifier checks ALL of the following:
+1. **Tests pass** — run the project's test suite
+2. **Lint clean** — run linter if configured
+3. **Build succeeds** — compile/build if applicable
+4. **Evidence exists** — git shows changed files
+5. **Eval targets met** — if `.meridian/eval_config.json` exists, run the eval command and compare metrics against defined targets. **If header_accuracy target is 85% and actual is 55%, this is a FAIL regardless of whether tests pass.**
+
+The verdict is FAIL if ANY check fails. "493 tests passing" does not override "eval accuracy below target."
 
 #### 5e. Dispatch Verification Reviewer
 

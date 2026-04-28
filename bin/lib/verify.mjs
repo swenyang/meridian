@@ -133,6 +133,14 @@ export function verify(projectDir, meridianDir) {
   const evidence = getEvidence(projectDir);
   checks.evidence = evidence;
 
+  // Eval targets: if plan defines eval_command + eval_targets, run eval and compare
+  const evalResult = runEvalCheck(projectDir, meridianDir);
+  if (evalResult) {
+    checks.eval = evalResult;
+    ran++;
+    if (evalResult.pass) passed++;
+  }
+
   const allPassed = passed === ran;
   const hasEvidence = evidence.pass;
 
@@ -147,6 +155,9 @@ export function verify(projectDir, meridianDir) {
   parts.push(`${passed}/${ran} checks passed`);
   if (skipped > 0) parts.push(`${skipped} skipped`);
   parts.push(`${evidence.files_changed} files changed`);
+  if (evalResult && !evalResult.pass) {
+    parts.push(`EVAL FAILED: ${evalResult.failures.join(", ")}`);
+  }
   let summary = parts.join(", ");
   if (ran === 0) summary = "WARNING: no checks detected. " + summary;
 
@@ -159,6 +170,77 @@ export function verify(projectDir, meridianDir) {
 }
 
 // --- helpers ---
+
+/**
+ * Run eval check if plan defines eval_command + eval_targets.
+ * Looks for .meridian/eval_config.json:
+ * {
+ *   "eval_command": "npm run eval -- --json",
+ *   "targets": {
+ *     "table_detection": { "metric": "table_detection_f1", "min": 0.85 },
+ *     "header_accuracy": { "metric": "header_accuracy", "min": 0.85 },
+ *     "field_accuracy": { "metric": "field_accuracy", "min": 0.85 }
+ *   }
+ * }
+ */
+function runEvalCheck(projectDir, meridianDir) {
+  const configPath = join(meridianDir, "eval_config.json");
+  if (!existsSync(configPath)) return null;
+
+  let config;
+  try {
+    config = JSON.parse(readFileSync(configPath, "utf-8"));
+  } catch {
+    return { pass: false, error: "eval_config.json is invalid JSON", failures: ["config parse error"] };
+  }
+
+  if (!config.eval_command || !config.targets) return null;
+
+  // Run the eval command
+  const result = runCheck(projectDir, "eval", config.eval_command);
+  if (!result.pass) {
+    return { pass: false, error: "eval command failed", exitCode: result.exitCode, output: result.output, failures: ["eval command exited non-zero"] };
+  }
+
+  // Try to parse metrics from JSON output
+  let metrics;
+  try {
+    // Find JSON in output (might have non-JSON lines before/after)
+    const jsonMatch = result.output.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      metrics = JSON.parse(jsonMatch[0]);
+    }
+  } catch {
+    return { pass: false, error: "could not parse eval output as JSON", output: result.output, failures: ["eval output not parseable"] };
+  }
+
+  if (!metrics) {
+    return { pass: false, error: "no JSON metrics in eval output", output: result.output, failures: ["no metrics found"] };
+  }
+
+  // Compare each target
+  const failures = [];
+  const results = {};
+  for (const [name, target] of Object.entries(config.targets)) {
+    const actual = metrics[target.metric];
+    if (actual == null) {
+      failures.push(`${name}: metric '${target.metric}' not found in eval output`);
+      results[name] = { target: target.min, actual: null, pass: false };
+    } else if (actual < target.min) {
+      failures.push(`${name}: ${actual} < ${target.min} (target)`);
+      results[name] = { target: target.min, actual, pass: false };
+    } else {
+      results[name] = { target: target.min, actual, pass: true };
+    }
+  }
+
+  return {
+    pass: failures.length === 0,
+    results,
+    failures,
+    output: tail(result.output, OUTPUT_TAIL_CHARS),
+  };
+}
 
 function readFileSafe(filePath) {
   try {

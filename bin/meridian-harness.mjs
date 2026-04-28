@@ -54,6 +54,7 @@ State Commands:
 Verification:
   detect-tools --dir <path>                  Detect available verification tools
   verify --dir <path>                        Run mechanical verification
+  eval-config --command <cmd> --targets <json> --dir <path>  Set eval targets
 
 Memory:
   memory-read --file <name> --dir <path>     Read a memory file
@@ -201,6 +202,17 @@ switch (command) {
     const projectDir = resolve(dir, "..");
     const result = detect(projectDir);
     console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "eval-config": {
+    if (!flags.command || !flags.targets) { console.error("Error: --command, --targets (JSON) required"); process.exit(1); }
+    const dir = resolveDir(flags.dir);
+    const config = { eval_command: flags.command, targets: JSON.parse(flags.targets) };
+    const { writeFileSync } = await import("fs");
+    const { join } = await import("path");
+    writeFileSync(join(dir, "eval_config.json"), JSON.stringify(config, null, 2), "utf8");
+    console.log(JSON.stringify({ created: true, targets: Object.keys(config.targets) }));
     break;
   }
 
