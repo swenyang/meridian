@@ -133,7 +133,19 @@ If progress stalls (reviewer keeps finding new gaps after multiple rounds), appl
 - **Simplify**: reduce scope to a tighter MVP, move contested features to "phase 2"
 - **Escalate**: present the remaining disagreement to the user as a scope choice
 
-#### 1d. Present to User
+#### 1d. Scope Contradiction Check (BEFORE presenting to user)
+
+Before presenting the scope, run a self-check for contradictions between will-build items:
+
+1. **Core-vs-fallback contradiction:** If the will-build list contains both "X-powered Y" (e.g., "LLM-powered parsing") AND "works without X" (e.g., "graceful degradation to heuristic-only"), this is a contradiction. The fallback undermines the core by making X optional. **Fix:** Remove the fallback from will-build. Make it an implementation detail of the core feature (resilience is built into the core task, not a separate deliverable).
+
+2. **Core technique demoted to scope question:** If the technical analysis (Step 1a) concluded "technique X is needed to solve the core challenge," but X appears as a scope question with a "skip" option — that's a contradiction. **Fix:** X is will-build. The scope question can be about which PROVIDER/IMPLEMENTATION of X, not whether to use X.
+
+3. **Eval-without-core:** If the eval framework is planned to run without the core feature enabled (e.g., eval uses heuristic-only mode), the eval can never validate the actual product. **Fix:** The eval plan must specify running with the product's intended configuration.
+
+If any contradictions found, resolve them BEFORE presenting to the user.
+
+#### 1e. Present to User
 
 Format the finalized expansion as a scope confirmation — **选择题, not open-ended**.
 
@@ -249,11 +261,13 @@ This architecture file now becomes the **binding contract** for all execution. E
    - No CLI, no config system, no output formatters, no error handling framework
    - Just: read input → core processing → produce output
    - This is a throwaway spike, not production code
+   - **CRITICAL: The spike must test the CORE technical approach identified in Step 1, not a fallback.** If the expansion says "LLM-powered X", the spike MUST use the LLM. If the spike only validates the fallback (heuristic-only), it proves nothing about the core approach. Test fallback separately — the spike's job is to validate the primary path.
 
 3. **Run the core on each test file and evaluate the output:**
    - Does it produce correct results on easy cases?
    - Where does it break on medium/hard cases?
    - What's the actual accuracy? (manual inspection or compare to ground truth if available)
+   - **Compare core approach vs fallback:** If the product has a primary technique (LLM) and a fallback (heuristic), test BOTH on the same files. If the core approach doesn't outperform the fallback significantly, the architecture is wrong — either the core isn't integrated deeply enough, or the fallback is sufficient and the core isn't needed.
 
 4. **Report findings to the strategic layer:**
    ```
@@ -307,6 +321,9 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
    - **Phase 3 — Polish:** documentation, eval framework, E2E validation.
    
    **Why:** Building 4 output formatters, a CLI with 6 commands, and a batch processing system before verifying the parser produces correct output is building a mansion on quicksand. The Excel parser project built 493 tests, 30+ models, and a full CLI — but the core parser produced wrong results on every real file. All that infrastructure was wasted effort.
+9. **Integration tests run with intended product configuration (CRITICAL).** The integration checkpoint and eval tasks MUST exercise the product with its core features ENABLED — not in fallback/degraded mode. If the product is designed to use LLM, integration tests run WITH LLM. If the product is designed to use a database, integration tests run WITH the database. Testing only the fallback path proves the fallback works — it proves nothing about the actual product.
+   
+   **Concrete rule:** The acceptance criteria for integration tasks (T9-equivalent) and eval tasks (T11-equivalent) MUST include: "Run with the product's intended configuration (all core features enabled). If a core feature requires an API key or external service, use the one the user provided." Do NOT use `--no-llm`, `use_llm=False`, or equivalent flags in integration tests unless specifically testing fallback behavior as a secondary test.
 
 **Output a JSON plan** and save to a temp file, then store via harness:
 
@@ -761,6 +778,9 @@ When all tasks are done:
 | Silent fallback to degraded mode | Will-build feature (LLM) silently disabled, heuristic takes over, nobody notices | Fail loudly when will-build features are unavailable — no silent degradation |
 | Trust subagent self-reported metrics | Agent says "100% accuracy" on 18 self-generated files | Run eval on real data yourself; compare against external benchmarks |
 | Decompose into many tasks before validating approach | 14 tasks built before discovering coordinate system was wrong | Step 2.5: validate core hypothesis on 3-5 real files BEFORE decomposing |
+| Demote core feature to optional enhancement | Scope says "LLM-powered X" but implementation makes LLM a secondary add-on that doesn't change results. Heuristic fallback becomes the primary path. | If expansion says "X-powered Y", then X MUST be the primary code path, not an enhancement. The fallback exists for resilience, but integration tests must run WITH X enabled and show X improves results vs fallback. If X doesn't improve results, the integration is broken — fix it before moving on. |
+| "Graceful degradation" as scope item for core feature | Having "works without LLM" as a will-build alongside "LLM-powered parsing" creates a perverse incentive: the system is designed to not need its own core feature. The fallback becomes the primary path. | Degradation/fallback is an implementation detail of the core feature, NOT a separate scope item. Never list "works without X" alongside "X-powered Y" as equal will-build items. The core feature task owns its own fallback behavior. |
+| Test integration with core features disabled | Integration tests use `use_llm=False` or `--no-llm`, so the product's primary capability is never actually tested end-to-end. 102 tests pass but none exercise the core feature. | Integration tests (T9) and eval (T11) MUST run with the product's intended configuration. Test fallback mode separately as a resilience check, not as the primary integration test. |
 
 ---
 
@@ -793,6 +813,8 @@ Use this in Step 1a when expanding the user's requirement.
 > **RULE 2: Only ask users for things the agent can't get itself.** API keys, private credentials, proprietary data, paid accounts — these need user confirmation upfront at scope confirmation (Step 1d). But test data, sample files, public datasets — the agent should find, download, or generate these autonomously. Don't burden the user with tasks the agent can do.
 >
 > **RULE 3: No dumping ground categories.** "Deferred to v1.1", "nice-to-have", "future work" — these are ways to avoid hard decisions. Either it's will-build, or it's a scope question where the user explicitly chooses. Every feature must be in one of those two buckets.
+>
+> **RULE 4: Core features cannot have "works without it" as a peer scope item.** If the will-build list includes "X-powered Y" (the core technique), do NOT also list "graceful degradation without X" or "works in X-free mode" as a SEPARATE will-build item. This creates a perverse incentive: the system gets designed to not need its own core capability, the fallback becomes the primary path, and the core feature becomes dead code. Fallback/resilience is an implementation detail INSIDE the core feature task — not a separate deliverable. Check yourself: would removing the core feature (X) still leave a "working" product? If yes, you've demoted the core to optional.
 >
 > **=== END RULES ===**
 >
