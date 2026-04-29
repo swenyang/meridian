@@ -1,6 +1,6 @@
 // State management — JSON-file-backed project state (zero-dependency, Node 18+).
 
-import { existsSync, mkdirSync, writeFileSync, readFileSync, cpSync, readdirSync, renameSync } from "fs";
+import { existsSync, mkdirSync, writeFileSync, readFileSync, cpSync, readdirSync, rmSync } from "fs";
 import { join } from "path";
 
 const STATE_FILE = "state.json";
@@ -81,19 +81,19 @@ export function init(dir) {
   const archiveDir = join(dir, "runs", state.run_id || `run-archived-${Date.now()}`);
   mkdirSync(archiveDir, { recursive: true });
 
-  // Move state, plan, tasks to archive
+  // Copy state, plan, tasks to archive
   if (existsSync(statePath(dir))) {
     cpSync(statePath(dir), join(archiveDir, "state.json"));
   }
   if (existsSync(join(dir, "plan.json"))) {
     cpSync(join(dir, "plan.json"), join(archiveDir, "plan.json"));
   }
-  if (existsSync(join(dir, "tasks"))) {
-    cpSync(join(dir, "tasks"), join(archiveDir, "tasks"), { recursive: true });
+  const tasksDir = join(dir, "tasks");
+  if (existsSync(tasksDir)) {
+    cpSync(tasksDir, join(archiveDir, "tasks"), { recursive: true });
     // Clear tasks dir for new run
-    for (const entry of readdirSync(join(dir, "tasks"))) {
-      const p = join(dir, "tasks", entry);
-      cpSync(p, join(archiveDir, "tasks", entry), { recursive: true });
+    for (const entry of readdirSync(tasksDir)) {
+      rmSync(join(tasksDir, entry), { recursive: true, force: true });
     }
   }
 

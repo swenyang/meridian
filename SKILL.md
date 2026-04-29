@@ -44,9 +44,26 @@ $HARNESS init --dir $MERIDIAN_DIR
 
 The harness returns a `mode` field:
 
-- **`mode: "new"`** — First time. Proceed to Step 0a/0b (project detection).
-- **`mode: "active"`** — A run is already in progress. The user is adding a new requirement to an ongoing project. Read current memory, add the new requirement to the existing plan via `plan-adjust`, and continue the task loop from where it left off.
-- **`mode: "new_after_archive"`** — Previous run completed and has been archived. Memory (project_brief, architecture, completed_tasks, decisions_log) is preserved from the last run. Start a new run with this context — the strategic layer already knows the project.
+- **`mode: "new"`** — First time. Proceed to Step 0a/0b (project detection), then full expansion (Step 1) + design (Step 2).
+
+- **`mode: "active"`** — A run is already in progress. The user is adding a new requirement to an ongoing project.
+  1. Read current memory (`$HARNESS memory-read-all --dir $MERIDIAN_DIR`)
+  2. **Update project_brief** — append the new requirement to the existing brief:
+     ```bash
+     $HARNESS memory-update --file project_brief --append "\n\n## Additional Requirement (this session)\n<new requirement text>" --dir $MERIDIAN_DIR
+     ```
+  3. Expand the new requirement **in context of what's already built** (abbreviated Step 1 — no need to re-expand the whole project)
+  4. Add new tasks to the existing plan via `plan-adjust`
+  5. Continue the task execution loop
+
+- **`mode: "new_after_archive"`** — Previous run completed and has been archived. Memory is preserved.
+  1. Read current memory — you already know the project
+  2. **Update project_brief** — add the new requirement alongside existing goals:
+     ```bash
+     $HARNESS memory-update --file project_brief --append "\n\n## New Goal (run <run_id>)\n<new requirement text>" --dir $MERIDIAN_DIR
+     ```
+  3. Proceed to Step 1 (Expansion) — but informed by existing memory. The expansion should build on what exists, not start from scratch.
+  4. Existing architecture/decisions/completed_tasks are carried forward — don't re-derive what's already known
 
 **Detect project context:** Check if you're working in an existing codebase or starting fresh.
 
