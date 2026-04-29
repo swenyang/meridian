@@ -17,6 +17,9 @@ Meridian is designed around **AI failure modes**, not human roles:
 | Sycophancy (agrees with prior conclusions) | Verification reviewer in isolated context |
 | Context degradation (forgets goals mid-project) | Memory system with project_brief anchor |
 | Overconfidence ("looks correct" without running) | Evidence required — no stdout, no PASS |
+| Circular validation (self-generated eval data) | Real-data mandate — eval uses external datasets, never self-generated toy data |
+| Scope-without-substance (493 tests, product doesn't work) | Core-first ordering — core must pass real-data eval before any auxiliary features |
+| Silent degradation (will-build feature disabled) | Will-build usage check — verification catches dead/disabled core features |
 
 ## Architecture
 
@@ -80,10 +83,20 @@ Step 2 — Design Phase ····························
 │  2c. Present to user (🟢 high confidence / 🟡 review / 🔴 needs input)
 │  → Confirmed design stored as binding contract in memory
 │
+▼
+Step 2.5 — Core Hypothesis Validation
+│  Source 3-5 REAL input files (public dataset, user samples, realistic synthetic)
+│  Build minimum viable core — just enough to process one file
+│  Run on each file, evaluate output quality
+│  If core fails on easy cases → go back to Step 1
+│  If core works on easy, struggles on hard → note failure modes, proceed
+│
 ▼ ─── Fully autonomous below — user only involved on escalation ───
 │
 Step 3 — Strategic Decomposition
 │  Confirmed design → structured task list (JSON)
+│  Core-first ordering: core logic → real-data integration test → auxiliary features
+│  Auxiliary features BLOCKED until core passes real-data eval
 │  Integration checkpoints every 3-4 build tasks
 │  Final task = end-to-end validation
 │

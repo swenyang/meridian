@@ -14,14 +14,17 @@ You (the main agent reading this skill) ARE the Strategic Layer — the project 
 
 1. **The agent that does the work never evaluates it.** Execution and verification are always separate subagents with isolated contexts.
 2. **Mechanical verdicts override LLM opinions.** Tool output > verification review findings > self-report.
-3. **Minimize user interruptions.** You are the project owner — make decisions yourself whenever possible. Only involve the user for:
+3. **Real data, not synthetic data.** Never evaluate a product against data you generated yourself. Self-generated eval data proves the code does what the code does — circular validation. Use real-world data from public datasets, existing benchmarks, or user-provided samples. If none exist, create realistic synthetic data modeled on actual production examples (not 3-row Alice/Bob tables).
+4. **Core before chrome.** The core product must work on real data before ANY auxiliary features are built. CLI, batch processing, caching, output formatters, progress bars — all worthless if the core function produces garbage. Block auxiliary tasks until the core passes a real-data eval.
+5. **Minimize user interruptions.** You are the project owner — make decisions yourself whenever possible. Only involve the user for:
    - Irreversible decisions (tech stack, database, core architecture) — present immediately with options
    - Reversible decisions — batch 3+ before asking, use your recommended option in the meantime
    - Escalations after ALL recovery strategies are exhausted (retry → rethink → split → skip)
    - Scope confirmation (once, after requirement expansion)
    
    If you find yourself about to ask the user something, ask: "Can I make this decision myself and move on?" If yes, do it and log it in decisions_log.
-4. **Scope changes are user decisions.** Never silently reduce scope. If something feels too ambitious, present it as a choice — don't cut it.
+   **Specifically: do NOT ask "should I start?" or "ready to proceed?" after presenting a plan.** The user confirmed scope and design already. Print the plan for visibility, then start executing immediately.
+6. **Scope changes are user decisions.** Never silently reduce scope. If something feels too ambitious, present it as a choice — don't cut it.
 
 ## Harness Setup
 
@@ -230,6 +233,48 @@ $HARNESS memory-update --file architecture --content "<full design document: all
 
 This architecture file now becomes the **binding contract** for all execution. Every task must implement against this design, and every verification checks conformance to it.
 
+### Step 2.5 — Core Hypothesis Validation (MANDATORY)
+
+**Purpose:** Before decomposing into 10+ tasks and building infrastructure, validate that the core technical approach actually works on real data. This catches fundamental flaws (wrong API format, broken coordinate systems, prompt failures, unsupported edge cases) when they're cheap to fix — not after 14 tasks of scaffolding.
+
+**Protocol:**
+
+1. **Source 3-5 REAL input files** for the product's target domain:
+   - Download from a public dataset or benchmark (e.g., HuggingFace, Kaggle, government open data)
+   - If the user has provided sample files, use those
+   - If no public data exists, create realistic synthetic examples modeled on actual production data (not toy examples)
+   - These files MUST represent at LEAST 3 difficulty levels: easy, medium, hard
+
+2. **Implement the minimum viable core** — just enough code to process ONE file end-to-end:
+   - No CLI, no config system, no output formatters, no error handling framework
+   - Just: read input → core processing → produce output
+   - This is a throwaway spike, not production code
+
+3. **Run the core on each test file and evaluate the output:**
+   - Does it produce correct results on easy cases?
+   - Where does it break on medium/hard cases?
+   - What's the actual accuracy? (manual inspection or compare to ground truth if available)
+
+4. **Report findings to the strategic layer:**
+   ```
+   [Meridian] 🔬 Core hypothesis validation
+   
+   Tested: 5 real files (2 easy, 2 medium, 1 hard)
+   Results:
+     ✅ Easy files: core approach works, output correct
+     ⚠️ Medium files: approach works but [specific issue]
+     ❌ Hard file: [fundamental problem] — need to [adjust approach]
+   
+   Revised approach: [if needed]
+   Ready to decompose: YES/NO
+   ```
+
+5. **If the core fails on easy cases:** The approach is fundamentally wrong. Go back to Step 1 (expansion) and revise the technical approach. Do NOT proceed to decomposition.
+
+6. **If the core works on easy, struggles on hard:** This is expected. Note the specific failure modes — they become acceptance criteria for later tasks. Proceed to decomposition.
+
+**Why this step exists:** In the Excel parser project, 14 tasks were built (30+ models, 5-layer pipeline, 493 tests) before discovering that the LLM prompt had a coordinate system mismatch (0-based vs 1-based) that made EVERY LLM result wrong. A 30-minute spike on a single real file would have caught this before any infrastructure was built.
+
 ### Step 3 — Strategic Decomposition
 
 You are the strategic layer. Read the **confirmed design** and decompose it into a structured task plan.
@@ -247,6 +292,12 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
    - Include adversarial/edge cases that specifically target where the naive approach fails
    - Create ground truth annotations with enough detail to mechanically verify (field-level, not just "looks right")
    - The eval dataset task itself gets verification reviewed — the reviewer checks if the data is realistic enough to actually test the product
+8. **Core-first ordering (CRITICAL).** Tasks must be ordered so the CORE FUNCTION is built and validated on real data BEFORE any auxiliary features:
+   - **Phase 1 — Core:** project scaffolding → core processing logic → real-data integration test. The integration test MUST use real-world input files (from Step 2.5 or the eval dataset), not synthetic fixtures. The core must pass this test before Phase 2 begins.
+   - **Phase 2 — Auxiliary:** CLI, output formatters, batch processing, caching, config system, progress bars, etc. These tasks are BLOCKED until Phase 1's real-data integration test passes.
+   - **Phase 3 — Polish:** documentation, eval framework, E2E validation.
+   
+   **Why:** Building 4 output formatters, a CLI with 6 commands, and a batch processing system before verifying the parser produces correct output is building a mansion on quicksand. The Excel parser project built 493 tests, 30+ models, and a full CLI — but the core parser produced wrong results on every real file. All that infrastructure was wasted effort.
 
 **Output a JSON plan** and save to a temp file, then store via harness:
 
@@ -310,6 +361,8 @@ $HARNESS memory-update --file architecture --content "<initial architecture over
 }
 ```
 The mechanical verifier will run this command and **reject any task completion where metrics fall below targets**. This is NOT optional — if the plan defines accuracy goals, they must be mechanically enforced.
+
+**DO NOT ask the user to confirm the plan or "reply to start."** The user already confirmed scope (Step 1) and design (Step 2). The task decomposition is your job as project owner. Print the plan summary for visibility, then immediately begin execution.
 
 ### Step 4 — Handle Decisions
 
@@ -388,8 +441,11 @@ The mechanical verifier checks ALL of the following:
 3. **Build succeeds** — compile/build if applicable
 4. **Evidence exists** — git shows changed files
 5. **Eval targets met** — if `.meridian/eval_config.json` exists, run the eval command and compare metrics against defined targets. **If header_accuracy target is 85% and actual is 55%, this is a FAIL regardless of whether tests pass.**
+6. **Real-data smoke test (for core tasks)** — if the task implements core processing logic, run the product on at least ONE real-world input file (from Step 2.5 or eval dataset) and verify the output is not empty/garbage. This catches bugs that unit tests miss — coordinate mismatches, encoding issues, prompt failures, silent degradation.
 
-The verdict is FAIL if ANY check fails. "493 tests passing" does not override "eval accuracy below target."
+The verdict is FAIL if ANY check fails. "493 tests passing" does not override "eval accuracy below target" or "output is wrong on real data."
+
+**CRITICAL: "Tests pass" ≠ "Product works."** Tests written by the same agent that wrote the code, running against synthetic data generated by the same agent, prove nothing about real-world behavior. The mechanical verifier MUST include at least one check against real data or an external benchmark. If the only evidence is self-written tests, the strategic layer should treat the task as UNVERIFIED, not PASSED.
 
 #### 5e. Dispatch Verification Reviewer
 
@@ -689,6 +745,12 @@ When all tasks are done:
 | Accept "looks correct" from execution | It probably didn't run it | Require mechanical evidence |
 | Ask user about every small decision | Breaks flow, frustrates user | Batch reversible decisions, only interrupt for irreversible |
 | Skip checkpoint after few tasks | Drift accumulates silently | Always check when harness says due |
+| Self-generate eval data | Circular validation — testing code against its own assumptions | Use real-world data from public datasets/benchmarks |
+| Build auxiliary features before core works | 493 tests + CLI + formatters + cache, but core produces garbage on real data | Core-first: block CLI/formatters/batch until core passes real-data eval |
+| Accept high test counts as quality evidence | Tests written by the agent test what the agent thinks, not what the product should do | Require at least one real-data check per core task |
+| Silent fallback to degraded mode | Will-build feature (LLM) silently disabled, heuristic takes over, nobody notices | Fail loudly when will-build features are unavailable — no silent degradation |
+| Trust subagent self-reported metrics | Agent says "100% accuracy" on 18 self-generated files | Run eval on real data yourself; compare against external benchmarks |
+| Decompose into many tasks before validating approach | 14 tasks built before discovering coordinate system was wrong | Step 2.5: validate core hypothesis on 3-5 real files BEFORE decomposing |
 
 ---
 
@@ -748,6 +810,14 @@ Use this in Step 1a when expanding the user's requirement.
 >    - The core technical approach identified in step 1 is NEVER a scope question. If your analysis says "need LLM", then LLM is will-build. You can ask which PROVIDER (OpenAI vs Azure vs local), but "skip LLM entirely" is not a valid option if your own analysis says it's needed.
 >    - If skipping an option would cause the product to fail its own eval targets, it's not a real choice — it's will-build.
 >    - "Deferred to v1.1" is not a category. Either it's will-build, or it's a scope question where one option is "skip for now." Don't create a dumping ground for features you don't want to deal with.
+>
+> 7. **Real-World Eval Data Source (MANDATORY for accuracy-sensitive projects)** — Identify WHERE real-world test data will come from BEFORE building anything. Options in preference order:
+>    - **Existing benchmark:** Is there a public benchmark/eval suite for this problem domain? (e.g., gdpval for Excel parsing, SQuAD for QA, GLUE for NLP). If yes, USE IT. Don't reinvent.
+>    - **Public dataset:** Is there a relevant dataset on HuggingFace, Kaggle, government open data portals? Download and create ground truth from it.
+>    - **User-provided samples:** Ask the user for 10-20 representative input files from their actual use case.
+>    - **Realistic synthetic (LAST RESORT):** Only if no real data exists. Must be modeled on actual production examples with realistic complexity, not 3-row toy tables.
+>
+>    **Self-generated eval data is BANNED.** An agent generating its own test data and then scoring itself against that data is circular validation. It proves the code does what the code does — nothing about whether the product works on real-world inputs. The eval dataset project learned this the hard way: 18 self-generated files produced "100% accuracy" while the parser failed on every real file from gdpval.
 >
 > **Critical Rule: No Unilateral Scope Reduction.** Your job is to EXPAND, not shrink. If the user said "surpass X", they mean genuinely more ambitious — not a stripped-down clone. You are NOT allowed to quietly downgrade scope, cut features to "keep it manageable", or use "for MVP" unless the user said MVP. If scope feels too large, list everything, mark priorities honestly, let the user decide via scope_questions.
 >
@@ -844,9 +914,9 @@ Use this in Step 5c. Fill placeholders and dispatch as an isolated subagent.
 >
 > **Constraints:** Only modify relevant files. Run existing tests — paste actual output. If criteria are ambiguous, use best judgment. Commit when done.
 >
-> **End-to-End Verification (MANDATORY):** After implementing, you MUST: (1) Build/compile the full project. (2) Launch the product. (3) Exercise the feature you built. (4) Verify integration with previous features. (5) **If this task involves a will-build feature (e.g., LLM integration), demonstrate it is ACTUALLY CALLED with real input and produces real output — not mocked, not stubbed, not behind a disabled config flag.** Paste real evidence (terminal output, API call logs, curl responses). If project can't launch yet (scaffolding), state explicitly.
+> **End-to-End Verification (MANDATORY):** After implementing, you MUST: (1) Build/compile the full project. (2) Launch the product. (3) Exercise the feature you built. (4) Verify integration with previous features. (5) **If this task involves a will-build feature (e.g., LLM integration), demonstrate it is ACTUALLY CALLED with real input and produces real output — not mocked, not stubbed, not behind a disabled config flag.** Paste real evidence (terminal output, API call logs, curl responses). If project can't launch yet (scaffolding), state explicitly. (6) **If this task implements core processing logic, run it on at least ONE real-world input file** (from the eval dataset or Step 2.5 spike) and paste the output. Verify the output is correct — not just "it ran without errors" but "the output matches what a human would expect." If the output is wrong, fix the code before reporting the task as complete.
 >
-> **Anti-Rationalization:** "Should work now" = you didn't run it → run it. "Minor change, no test needed" = minor changes cause regressions → run tests. "Code looks correct by inspection" = inspection misses runtime bugs → execute end-to-end.
+> **Anti-Rationalization:** "Should work now" = you didn't run it → run it. "Minor change, no test needed" = minor changes cause regressions → run tests. "Code looks correct by inspection" = inspection misses runtime bugs → execute end-to-end. "Tests pass so it works" = tests only cover what you thought to test → run on real data.
 >
 > {iteration_context}
 
@@ -867,6 +937,12 @@ Use this in Step 5e. Independent subagent — give ONLY code changes + acceptanc
 > 3. Check consistency with project structure.
 > 4. Do NOT comment on style — only objective problems.
 > 5. **Will-build usage check (CRITICAL):** For each will-build feature listed above, verify it is ACTUALLY USED in the product's real code path — not just imported, not just in test mocks, not behind a disabled flag. If a will-build feature exists as code but is never called in the E2E flow (e.g., LLM client exists but every code path uses the heuristic fallback), that is a CRITICAL finding. Dead will-build code is worse than missing code — it creates the illusion of capability.
+> 6. **Test quality check:** Are the tests testing real behavior, or just confirming the code does what the code does? Red flags:
+>    - Tests using only self-generated synthetic data (3-row tables, trivial layouts)
+>    - Tests that mock the very component being tested (mocking the LLM in an LLM integration test)
+>    - Tests with no assertion on output correctness (just "it didn't crash")
+>    - Test count inflation (50 tests that all test the same trivial path)
+>    If all tests are synthetic/circular, flag as WARNING: "No real-data validation — test suite proves internal consistency, not external correctness."
 >
 > **Bias Warning:** You may be inclined to say "code looks good." Resist this. If zero issues, output empty array. Do not skip real problems to appear agreeable.
 >
