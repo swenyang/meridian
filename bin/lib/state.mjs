@@ -81,17 +81,23 @@ export function init(dir) {
   const archiveDir = join(dir, "runs", state.run_id || `run-archived-${Date.now()}`);
   mkdirSync(archiveDir, { recursive: true });
 
-  // Copy state, plan, tasks to archive
+  // Copy state, plan, tasks, eval_config to archive then clean up
   if (existsSync(statePath(dir))) {
     cpSync(statePath(dir), join(archiveDir, "state.json"));
   }
-  if (existsSync(join(dir, "plan.json"))) {
-    cpSync(join(dir, "plan.json"), join(archiveDir, "plan.json"));
+  const planPath = join(dir, "plan.json");
+  if (existsSync(planPath)) {
+    cpSync(planPath, join(archiveDir, "plan.json"));
+    rmSync(planPath);
+  }
+  const evalConfigPath = join(dir, "eval_config.json");
+  if (existsSync(evalConfigPath)) {
+    cpSync(evalConfigPath, join(archiveDir, "eval_config.json"));
+    rmSync(evalConfigPath);
   }
   const tasksDir = join(dir, "tasks");
   if (existsSync(tasksDir)) {
     cpSync(tasksDir, join(archiveDir, "tasks"), { recursive: true });
-    // Clear tasks dir for new run
     for (const entry of readdirSync(tasksDir)) {
       rmSync(join(tasksDir, entry), { recursive: true, force: true });
     }
