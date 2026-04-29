@@ -17,42 +17,51 @@ Meridian is designed around **AI failure modes**, not human roles:
 | Sycophancy (agrees with prior conclusions) | Verification reviewer in isolated context |
 | Context degradation (forgets goals mid-project) | Memory system with project_brief anchor |
 | Overconfidence ("looks correct" without running) | Evidence required — no stdout, no PASS |
-| Circular validation (self-generated eval data) | Real-data mandate — eval uses external datasets, never self-generated toy data |
-| Scope-without-substance (493 tests, product doesn't work) | Core-first ordering — core must pass real-data eval before any auxiliary features |
-| Silent degradation (will-build feature disabled) | Will-build usage check — verification catches dead/disabled core features |
+| Scope gaming (puts core tech in "optional") | Technical analysis binds feature list — chosen approach = will-build |
+| Toy eval data (3-row tests prove nothing) | Eval dataset quality gate — realism, coverage, difficulty, volume checks |
+| Dead features (code exists but never called) | Will-build usage verification — dead code = critical finding |
+
+## Core Principles
+
+1. **The agent that does the work never evaluates it.** Execution and verification are always separate subagents with isolated contexts.
+2. **Mechanical verdicts override LLM opinions.** Tool output > verification review findings > self-report. Eval metrics below target = FAIL regardless of passing tests.
+3. **Real data, not synthetic data.** Eval against real-world data, not self-generated toy examples.
+4. **Core before chrome.** Core function must work on real data before ANY auxiliary features (CLI, batch, caching, formatters). Block auxiliary tasks until core passes real-data eval.
+5. **Minimize user interruptions.** Only ask for: irreversible decisions, scope confirmation, design confirmation, escalations after all recovery strategies exhausted. Never ask "should I start?" — just start.
+6. **Scope changes are user decisions.** Never silently reduce scope. Core technical approach = always will-build, never optional.
 
 ## Architecture
 
 ```
                     ┌──────────────┐
                     │  Strategic    │
-                    │  Layer        │ ← Project owner: expand, decompose,
-                    │  (main agent) │   checkpoint, decide, backtrack
+                    │  Layer        │ ← Project owner: expand, design,
+                    │  (main agent) │   decompose, checkpoint, decide
                     └──┬───────┬───┘
-              task+context│       │code+criteria(trimmed)
+           task+context│       │code+criteria(trimmed)
                       ↓       ↓
                ┌──────┐     ┌──────┐
                │Execut.│     │Verif.│
-               │      │     │      │ ← Also reviews requirement expansion
+               │      │     │      │ ← Reviews expansion, design, AND code
                └──┬───┘     └──┬───┘
                   │ code output │ findings
                   ↓            ↓
                ┌─────────────────┐
                │    Harness       │ ← Mechanical verifier (tests, lint, build)
-               │    (Node.js CLI) │   State, memory, decisions, iterations
+               │    (Node.js CLI) │   + Eval metrics check (accuracy targets)
+               │                 │   State, memory, decisions, iterations
                └────────┬────────┘
                         │
                  PASS → next task
                  FAIL → iterate (escalation ladder)
 ```
 
-**Data flow is a triangle. Information is deliberately asymmetric.**
+**Data flow is a triangle. Information is deliberately asymmetric.** Strategic sees everything. Execution sees task + project context. Verification sees only code + criteria — never execution's reasoning.
 
-The verification layer participates in two phases:
-1. **Requirement expansion** — reviews the strategic layer's product spec for gaps
-2. **Code verification** — reviews execution layer's code for bugs
-
-Each time it's a fresh subagent instance with minimal context — it can't see reasoning, only output.
+The verification layer participates in THREE phases:
+1. **Requirement expansion** — reviews product spec for gaps, scope reduction, missing technical depth
+2. **Design** — reviews architecture for completeness, consistency, implementability
+3. **Code** — reviews implementation for bugs, dead will-build features, acceptance criteria
 
 ## Protocol
 
@@ -61,44 +70,50 @@ Each time it's a fresh subagent instance with minimal context — it can't see r
 │
 ▼
 Step 0 — Initialize
-│  Detect project state:
+│  Detect run state:
 │  ├── First time → create .meridian/
-│  ├── Active run → append requirement to current plan (jump to Step 3)
-│  └── Previous completed → archive old run, start fresh (memory preserved)
+│  ├── Active run → append requirement, update memory, add to plan
+│  └── Previous completed → archive, start fresh (memory preserved)
 │  Detect codebase:
 │  ├── Existing project → scan architecture/tests/conventions, store in memory
 │  └── Empty project → proceed
 │
 ▼
-Step 1 — Requirement Expansion ··················· 👤 User checkpoint 1/2
-│  1a. Strategic layer expands requirement (systems, user journeys, quality)
-│  1b. Verification reviewer checks expansion (independent subagent, finds gaps)
+Step 1 — Requirement Expansion ·················· 👤 User checkpoint 1/2
+│  1a. Strategic layer expands requirement
+│      Core Technical Challenge analysis first (naive → why fails → better → chosen)
+│      Three non-negotiable rules enforced:
+│        - Chosen technical approach = will-build (not optional)
+│        - External deps (API keys) collected upfront
+│        - No "deferred to v1.1" dumping ground
+│  1b. Verification reviewer checks expansion
+│      Technical depth, scope reduction, eval strategy, E2E definition
 │  1c. Iterate until reviewer satisfied (escalation ladder if stuck)
-│  1d. Present scope to user (core features ✅ + optional features A/B)
+│  1d. Present scope to user + collect required credentials
 │
 ▼
-Step 2 — Design Phase ···························· 👤 User checkpoint 2/2
+Step 2 — Design Phase ··························· 👤 User checkpoint 2/2
 │  2a. Generate design artifacts (architecture, data model, API, UI flow...)
-│  2b. Verification reviewer checks design (completeness, consistency)
-│  2c. Present to user (🟢 high confidence / 🟡 review / 🔴 needs input)
-│  → Confirmed design stored as binding contract in memory
+│      Confidence levels: 🟢 proceed / 🟡 review / 🔴 needs input
+│      External dependencies + eval strategy required
+│  2b. Verification reviewer checks design
+│  2c. Present design to user (only 🟡🔴 items need attention)
+│  → Confirmed design stored as binding contract
 │
 ▼
 Step 2.5 — Core Hypothesis Validation
-│  Source 3-5 REAL input files (public dataset, user samples, realistic synthetic)
-│  Build minimum viable core — just enough to process one file
-│  Run on each file, evaluate output quality
-│  If core fails on easy cases → go back to Step 1
-│  If core works on easy, struggles on hard → note failure modes, proceed
+│  Validate core technical approach on real data BEFORE building infrastructure
+│  Catch fundamental flaws when they're cheap to fix
 │
 ▼ ─── Fully autonomous below — user only involved on escalation ───
 │
 Step 3 — Strategic Decomposition
-│  Confirmed design → structured task list (JSON)
-│  Core-first ordering: core logic → real-data integration test → auxiliary features
-│  Auxiliary features BLOCKED until core passes real-data eval
-│  Integration checkpoints every 3-4 build tasks
+│  Confirmed design → structured task list
+│  Integration checkpoints every 3-4 tasks
+│  Eval dataset as first-class early task (real data, 50+ files)
+│  Core-first ordering: core → auxiliary → polish
 │  Final task = end-to-end validation
+│  Print plan, start executing immediately (no "ready?" prompt)
 │
 Step 4 — Handle Decisions
 │  Irreversible → block immediately, ask user (multiple-choice)
@@ -110,8 +125,11 @@ Step 5 — Task Execution Loop ←───────────────�
 │    5b. Strategic layer refines task               │
 │    5c. Execution subagent writes code (isolated)  │
 │        └─ Must E2E verify: launch + use feature  │
-│    5d. Mechanical verifier (tests/lint/build)     │
+│        └─ Will-build features: real call, not stub│
+│    5d. Mechanical verifier:                       │
+│        tests + lint + build + eval targets        │
 │    5e. Verification reviewer (isolated context)   │
+│        └─ Will-build usage check: dead code = FAIL│
 │    5f. Synthesize verdict:                        │
 │        mechanical FAIL → FAIL                    │
 │        + reviewer critical → FAIL                │
@@ -131,8 +149,9 @@ Step 6 — Checkpoint (every N tasks)
 │  ├── Plan adjustment (add/remove/update tasks)
 │  ├── Task backtracking (reopen → reverify cascade)
 │  ├── Eval-driven quality loop (AI/ML projects):
-│  │     eval → analyze failure clusters → targeted fix → re-eval
-│  │     → loop until target accuracy or diminishing returns
+│  │     eval dataset quality gate (realism, coverage, volume)
+│  │     → eval → analyze failure clusters → targeted fix
+│  │     → re-eval → loop until target or plateau
 │  └── Batch decision report if due
 │
 Step 7 — Status Notifications
@@ -158,8 +177,6 @@ escalate          → present full analysis + options to user (multiple-choice)
 
 ## Multi-Layer Iteration
 
-Real projects aren't linear. Meridian supports 5 layers of iteration:
-
 | Layer | Trigger | Mechanism |
 |---|---|---|
 | **Task retry** | Verification fails | Retry with findings, then escalation ladder |
@@ -173,36 +190,45 @@ Real projects aren't linear. Meridian supports 5 layers of iteration:
 Each LLM call is a new stateless process. Memory files maintain continuity:
 
 ```
-.meridian/memory/
-├── project_brief.md      ← Anchor: never drifts, only user can change
-├── decisions_log.md      ← All confirmed decisions (never truncated)
-├── architecture.md       ← Current state (updated at checkpoints)
-├── completed_tasks.md    ← What's been built (auto-truncates old entries)
-└── active_issues.md      ← Unresolved problems
+.meridian/
+├── state.json              ← Current run state
+├── plan.json               ← Current task plan
+├── eval_config.json        ← Eval command + accuracy targets (if applicable)
+├── memory/                 ← Persists across runs
+│   ├── project_brief.md    ← Anchor: goals + tech stack + constraints
+│   ├── decisions_log.md    ← All confirmed decisions (never truncated)
+│   ├── architecture.md     ← Current state (updated at checkpoints)
+│   ├── completed_tasks.md  ← What's been built (auto-truncates old entries)
+│   └── active_issues.md    ← Unresolved problems
+├── tasks/                  ← Current run task records
+│   └── T1/                 ← Per-task: prompts, outputs, verdicts, evidence
+└── runs/                   ← Archived completed runs
+    └── run-20260428-.../   ← State + plan + tasks snapshot
 ```
 
 **Context injection per layer:**
 - **Strategic** (main agent): all memory — full project awareness
 - **Execution** (subagent): brief + architecture + current task — enough to build
-- **Verification** (subagent): criteria + code diff only — deliberately minimal
+- **Verification** (subagent): criteria + code diff + will-build features list — deliberately minimal
 
 ## Harness (Node.js CLI)
 
 The harness does everything that doesn't need an LLM:
 
 ```bash
-# State
-meridian-harness init | plan-set | task-list | task-status | task-complete
+# State & runs
+meridian-harness init | plan-set | run-status | run-complete
+meridian-harness task-list | task-status | task-complete
 
 # Iteration
 meridian-harness task-reopen | plan-adjust
 meridian-harness iteration-record | iteration-count
 
 # Verification
-meridian-harness detect-tools | verify
+meridian-harness detect-tools | verify | eval-config
 
 # Memory
-meridian-harness memory-read | memory-update | memory-read-all
+meridian-harness memory-read | memory-update | memory-read-all | memory-resolve-issue
 
 # Decisions
 meridian-harness decision-add | decision-pending | decision-resolve
@@ -212,7 +238,7 @@ meridian-harness report-due | report-format
 meridian-harness checkpoint-due
 ```
 
-All commands output JSON. Zero runtime dependencies. 40 integration tests.
+All commands output JSON. Zero runtime dependencies. 49 integration tests.
 
 ## Quick Start
 
