@@ -224,6 +224,12 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
 4. Each task needs concrete, mechanically verifiable acceptance criteria — not "code is good" but "running `npm test` passes" or "file src/auth.ts exports function `login`"
 5. **Integration checkpoints are mandatory.** After every 3-4 build tasks, insert an integration task that verifies the built modules work together end-to-end. Its acceptance criteria must include launching the actual product and exercising the core flow.
 6. **The final task must be end-to-end validation** — not another feature, but "launch the product and verify the complete user journey works." Acceptance criteria: the product starts, the core workflow executes successfully, and the output is what the user asked for.
+7. **Eval dataset task (if applicable) is a FIRST-CLASS deliverable, not an afterthought.** For projects with accuracy/quality goals, include a dedicated task early in the plan for building the eval dataset. This task must:
+   - Source REAL-WORLD data (download public datasets, scrape examples, generate realistic synthetic data) — not 3-row Alice/Bob/Carol toy tables
+   - Cover ALL difficulty categories identified in the technical challenge analysis
+   - Include adversarial/edge cases that specifically target where the naive approach fails
+   - Create ground truth annotations with enough detail to mechanically verify (field-level, not just "looks right")
+   - The eval dataset task itself gets verification reviewed — the reviewer checks if the data is realistic enough to actually test the product
 
 **Output a JSON plan** and save to a temp file, then store via harness:
 
@@ -536,6 +542,17 @@ If the user invokes `/meridian <new requirement>` while a run is active (detecte
 
 For projects that involve AI/LLM output (parsing, classification, generation, extraction), code that compiles and tests that pass are NOT enough. The AI output must be **measurably good**. This step runs after the core AI functionality is built and the eval task is complete.
 
+**Eval dataset quality gate (BEFORE running eval):**
+
+Before trusting eval results, verify the eval dataset itself is meaningful:
+1. **Realism check:** Are the test files representative of real-world inputs, or are they toy examples? A "merged headers" test file with 3 rows and 4 columns proves nothing — real merged headers have 3-level hierarchies, mixed CJK/English, and inconsistent formatting.
+2. **Coverage check:** Does the dataset cover ALL difficulty categories from the technical challenge analysis? If the analysis identified 6 failure modes, there must be test files targeting each one.
+3. **Difficulty gradient:** Are there easy, medium, and hard examples? If all test files are trivially simple, 95% accuracy means nothing.
+4. **Ground truth depth:** Is the ground truth detailed enough to mechanically verify? "headers: [A, B, C]" is insufficient — include row/column positions, merged cell ranges, data types, and sample records with actual values.
+5. **Volume:** Is there enough data? 18 files is a smoke test, not an eval. Target 50+ for MVP, 200+ for production.
+
+If the eval dataset fails this quality gate, the strategic layer must create improvement tasks to upgrade it BEFORE using eval results to judge the product.
+
 **When to trigger:** After an eval/benchmark task completes, check the results:
 
 ```bash
@@ -745,7 +762,14 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 > 7. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
 > 8. Consistency — features, systems, quality targets tell coherent story?
 > 9. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
-> 10. **Eval strategy** — for AI/ML projects: is there an eval dataset spec, accuracy metrics, and ground truth source? Without eval, you can't verify the product works. Missing = critical gap.
+> 10. **Eval strategy (CRITICAL for AI/ML)** — is there an eval dataset spec, accuracy metrics, and ground truth source? Check specifically:
+>    - Does the eval dataset spec describe REALISTIC data, or just toy examples? "3 rows, 4 columns" is a unit test, not eval.
+>    - Does it cover all difficulty categories from the technical challenge analysis?
+>    - Does it include adversarial cases that target known failure modes?
+>    - Is the ground truth detailed enough for mechanical comparison (field-level, not vibes)?
+>    - Is the planned volume sufficient (50+ files for MVP, not 18)?
+>    - Where does test data come from? Agent should source/generate it — not burden the user.
+>    Without eval, you can't verify the product works. Weak eval is worse than no eval — it creates false confidence. Missing or toy-level eval = critical gap.
 > 11. **External dependencies** — does the product need API keys, external services, credentials? Are they explicitly listed? Missing = critical gap (user can't build it without knowing what accounts to set up).
 >
 > **Output:** JSON with `gaps[]`, `scope_reduction[]`, `overscoped[]`, `satisfied` (bool), `summary`. Any non-empty `scope_reduction` = automatic `satisfied: false`.
