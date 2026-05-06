@@ -484,35 +484,30 @@ Reply:
   "the dataset needs more hard cases" → request difficulty adjustment
 ```
 
-Once the user approves the eval framework, present the **execution mode setup**:
+Once the user approves the eval framework, present the **execution mode selection**:
 
 ```
 [Meridian] ✅ Eval framework approved. Ready to begin autonomous execution.
 
-Before I start, please set up your preferred execution mode:
+How should I run?
 
-  → [1] Autopilot mode (recommended for Meridian)
-        Run these two commands:
-          1. Press Shift+Tab to cycle to "autopilot" mode
-          2. Type /allow-all to grant file/tool/URL permissions
-        This prevents permission prompts from blocking autonomous execution.
-        You'll still see all status updates and can intervene anytime.
+  → [1] Autopilot mode (recommended)
+        Copilot runs without permission prompts.
+        Best for: uninterrupted execution, long-running builds.
+        You'll still see status updates and can intervene anytime.
 
-  → [2] Default mode (keep current settings)
-        No changes needed. I'll work with whatever permissions are granted.
-        Note: you may be prompted to approve file edits and commands mid-execution.
+  → [2] Default mode
+        Copilot asks permission for file edits and commands.
+        Best for: first-time use, sensitive codebases, learning the flow.
 
-Reply: 1 / 2 (or Enter for recommended)
-After switching mode, type "go" to start.
+  → [3] Autopilot with checkpoints
+        Autopilot within each task, pauses between tasks for your review.
+        Best for: want speed but also visibility at each milestone.
+
+Reply: 1 / 2 / 3 (or Enter for recommended)
 ```
 
-**Why this matters:** Autonomous execution (Step 4 → Step 6) involves many file operations, shell commands, subagent dispatches, and package installs. In default mode, each operation may trigger a permission prompt that blocks execution. The user has already reviewed and approved scope (Step 1), design (Step 2), and eval framework (Step 3.5) — the three user checkpoints are complete. Switching to autopilot + `/allow-all` lets the framework execute without interruption.
-
-**Integration with Copilot CLI:**
-- `Shift+Tab` cycles through modes: normal → autopilot (experimental feature, requires `--experimental` flag or `/experimental` command)
-- `/allow-all` grants all tool, path, and URL permissions for the session
-- These are Copilot CLI native features — Meridian just instructs the user to activate them at the right time
-- If the user's agent platform doesn't support autopilot (e.g., Cursor, other agents), proceed in default mode
+**Why this matters:** Autonomous execution (Step 4 → Step 6) may involve many file operations, shell commands, subagent dispatches, and package installs. In default mode, each operation triggers a permission prompt, which blocks execution and defeats the purpose of autonomous engineering. Autopilot mode lets the framework run without interruption — the user already reviewed and approved scope (Step 1), design (Step 2), and eval framework (Step 3.5).
 
 **Rules:**
 - Present AFTER decomposition (Step 3) — the strategic layer needs to understand the product to design eval
@@ -534,10 +529,12 @@ After switching mode, type "go" to start.
 - All data from one source → "This tests one type of input, not the real world"
 - Metrics that don't cover the core value prop → "We're measuring the wrong thing"
 
-**After user approves eval framework, sets up execution mode, and types "go":**
+**After user approves eval framework AND selects execution mode:**
 1. Store the eval framework design in memory and create the eval task in the plan
-2. Proceed to Step 4 (Core Hypothesis Validation)
-3. The execution layer builds the eval pipeline as code. The verification layer uses it to score every core task's output independently.
+2. If user selected **Autopilot mode (1):** instruct the user to switch to autopilot mode (e.g., press `a` in Copilot CLI, or equivalent in their agent platform), then proceed immediately
+3. If user selected **Default mode (2):** proceed normally, expect permission prompts
+4. If user selected **Autopilot with checkpoints (3):** run in autopilot within each task, but pause after each task completion with a brief status update before continuing
+5. The execution layer builds the eval pipeline as code. The verification layer uses it to score every core task's output independently.
 
 ### Step 4 — Core Hypothesis Validation (MANDATORY)
 
