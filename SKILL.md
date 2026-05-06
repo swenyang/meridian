@@ -484,6 +484,31 @@ Reply:
   "the dataset needs more hard cases" → request difficulty adjustment
 ```
 
+Once the user approves the eval framework, present the **execution mode selection**:
+
+```
+[Meridian] ✅ Eval framework approved. Ready to begin autonomous execution.
+
+How should I run?
+
+  → [1] Autopilot mode (recommended)
+        Copilot runs without permission prompts.
+        Best for: uninterrupted execution, long-running builds.
+        You'll still see status updates and can intervene anytime.
+
+  → [2] Default mode
+        Copilot asks permission for file edits and commands.
+        Best for: first-time use, sensitive codebases, learning the flow.
+
+  → [3] Autopilot with checkpoints
+        Autopilot within each task, pauses between tasks for your review.
+        Best for: want speed but also visibility at each milestone.
+
+Reply: 1 / 2 / 3 (or Enter for recommended)
+```
+
+**Why this matters:** Autonomous execution (Step 4 → Step 6) may involve many file operations, shell commands, subagent dispatches, and package installs. In default mode, each operation triggers a permission prompt, which blocks execution and defeats the purpose of autonomous engineering. Autopilot mode lets the framework run without interruption — the user already reviewed and approved scope (Step 1), design (Step 2), and eval framework (Step 3.5).
+
 **Rules:**
 - Present AFTER decomposition (Step 3) — the strategic layer needs to understand the product to design eval
 - Present BEFORE hypothesis validation (Step 4) — the spike is judged against these criteria
@@ -504,7 +529,12 @@ Reply:
 - All data from one source → "This tests one type of input, not the real world"
 - Metrics that don't cover the core value prop → "We're measuring the wrong thing"
 
-**After user approves:** Store the eval framework design in memory and create the eval task in the plan. The execution layer builds the eval pipeline as code. The verification layer uses it to score every core task's output independently.
+**After user approves eval framework AND selects execution mode:**
+1. Store the eval framework design in memory and create the eval task in the plan
+2. If user selected **Autopilot mode (1):** instruct the user to switch to autopilot mode (e.g., press `a` in Copilot CLI, or equivalent in their agent platform), then proceed immediately
+3. If user selected **Default mode (2):** proceed normally, expect permission prompts
+4. If user selected **Autopilot with checkpoints (3):** run in autopilot within each task, but pause after each task completion with a brief status update before continuing
+5. The execution layer builds the eval pipeline as code. The verification layer uses it to score every core task's output independently.
 
 ### Step 4 — Core Hypothesis Validation (MANDATORY)
 
