@@ -128,10 +128,6 @@ Step 3.5 — Eval Framework Design ················· 👤 User 
 │  ├── E2E acceptance scenarios (product-level, not per-task)
 │  └── User adjusts targets, adds sources, strengthens scenarios
 │  This framework is the quality bar — too lenient = broken product passes
-│  User selects execution mode:
-│  ├── [1] Autopilot (recommended) — no permission prompts
-│  ├── [2] Default — manual confirmations
-│  └── [3] Autopilot with checkpoints — pauses between tasks
 │
 Step 4 — Core Hypothesis Validation
 │  AFTER user approves verification plan
