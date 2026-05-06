@@ -129,9 +129,8 @@ Step 3.5 — Eval Framework Design ················· 👤 User 
 │  └── User adjusts targets, adds sources, strengthens scenarios
 │  This framework is the quality bar — too lenient = broken product passes
 │  User selects execution mode:
-│  ├── [1] Autopilot (recommended) — no permission prompts
-│  ├── [2] Default — manual confirmations
-│  └── [3] Autopilot with checkpoints — pauses between tasks
+│  ├── [1] Autopilot (recommended) — Shift+Tab + /allow-all
+│  └── [2] Default — keep current permissions
 │
 Step 4 — Core Hypothesis Validation
 │  AFTER user approves verification plan
