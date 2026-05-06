@@ -43,6 +43,7 @@ Usage: meridian-harness <command> [flags]
 State Commands:
   init --dir <path>                          Initialize .meridian/ directory
   plan-set --plan <file> --dir <path>        Store task plan
+  validate-plan --plan <file> --dir <path> [--strict]  Validate plan quality
   run-status --dir <path>                    Check current run status
   run-complete --dir <path>                  Mark current run as completed
   task-list --dir <path>                     List all tasks
@@ -53,7 +54,7 @@ State Commands:
 
 Verification:
   detect-tools --dir <path>                  Detect available verification tools
-  verify --dir <path>                        Run mechanical verification
+  verify --dir <path>                        Run baseline mechanical verification (execution's tests, lint, build, eval)
   eval-config --command <cmd> --targets <json> --dir <path>  Set eval targets
 
 Memory:
@@ -100,6 +101,16 @@ switch (command) {
     const { planSet } = await import("./lib/state.mjs");
     const result = planSet(resolveDir(flags.dir), resolve(flags.plan));
     console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "validate-plan": {
+    if (!flags.plan) { console.error("Error: --plan <file> is required"); process.exit(1); }
+    const { validatePlan } = await import("./lib/state.mjs");
+    const strict = flags.strict === true || flags.strict === "true";
+    const result = validatePlan(resolve(flags.plan), resolveDir(flags.dir), strict);
+    console.log(JSON.stringify(result));
+    if (!result.valid) process.exit(1);
     break;
   }
 

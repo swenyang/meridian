@@ -21,10 +21,11 @@ You (the main agent reading this skill) ARE the Strategic Layer — the project 
    - Reversible decisions — batch 3+ before asking, use your recommended option in the meantime
    - Escalations after ALL recovery strategies are exhausted (retry → rethink → split → skip)
    - Scope confirmation (once, after requirement expansion)
-   
+
    If you find yourself about to ask the user something, ask: "Can I make this decision myself and move on?" If yes, do it and log it in decisions_log.
    **Specifically: do NOT ask "should I start?" or "ready to proceed?" after presenting a plan.** The user confirmed scope and design already. Print the plan for visibility, then start executing immediately.
 6. **Scope changes are user decisions.** Never silently reduce scope. If something feels too ambitious, present it as a choice — don't cut it.
+7. **Match the user's language.** All user-facing output (status messages, scope confirmations, design reviews, checkpoint reports, escalations) MUST be in the same language the user used in their `/meridian` invocation. If the user writes in Chinese, output in Chinese. If in English, output in English. Internal artifacts (plan JSON, memory files, subagent prompts) may remain in English for consistency.
 
 ## Harness Setup
 
@@ -120,8 +121,6 @@ The verification reviewer will find gaps, blind spots, overscoped features, and 
 
 #### 1c. Iterate Until Satisfied
 
-#### 1c. Iterate Until Satisfied
-
 If the reviewer returns `satisfied: false`:
 1. Read their gaps and suggestions
 2. Address critical/important gaps — revise or extend the expansion
@@ -130,7 +129,6 @@ If the reviewer returns `satisfied: false`:
 
 If progress stalls (reviewer keeps finding new gaps after multiple rounds), apply the same escalation ladder as task execution:
 - **Rethink**: step back and reconsider the product concept from a different angle
-- **Simplify**: reduce scope to a tighter MVP, move contested features to "phase 2"
 - **Escalate**: present the remaining disagreement to the user as a scope choice
 
 #### 1d. Scope Contradiction Check (BEFORE presenting to user)
@@ -188,20 +186,24 @@ After user confirms scope + provides required setup → proceed to Step 2 (Desig
 
 ### Step 2 — Design Phase
 
-**Purpose:** Produce concrete design artifacts BEFORE implementation starts. These artifacts become the binding contract that guides all autonomous execution. Getting the design right here prevents "built the wrong thing" failures that no amount of code-level verification can catch.
+**Purpose:** For each will-build scope item confirmed in Step 1, produce a concrete design that answers "HOW will we build this?" The design must map 1:1 to the scope — every will-build item gets a design, and every design traces back to a scope item. This prevents the design from drifting into random implementation details that don't serve the confirmed scope.
 
 #### 2a. Generate Design
 
-Use the Appendix C (Design Prompt) template. The strategic layer produces design artifacts appropriate for the project type — architecture, data model, API contract, UI flow, etc.
+Use the Appendix C (Design Prompt) template. The strategic layer produces design artifacts **organized by scope item** — not by technical category.
 
-Each artifact is marked with a confidence level:
-- 🟢 **High confidence** — AI proceeds without review
-- 🟡 **Review recommended** — user should glance, alternatives provided
-- 🔴 **Needs input** — can't determine without user preference
+**Structure:** For EACH will-build item from the confirmed scope:
+1. **What:** The scope item (from Step 1)
+2. **How:** The design approach — architecture, data model, interfaces, contracts
+3. **Confidence:** 🟢 high / 🟡 review recommended / 🔴 needs user input
+
+Cross-cutting concerns (file structure, error handling, config) are listed separately but must explain which scope items they serve.
 
 #### 2b. Verification Review of Design
 
 Spawn a verification reviewer subagent with Appendix D (Design Verification Review). The reviewer checks:
+- **Scope coverage:** Does every will-build item from Step 1 have a corresponding design? Any scope items missing = critical gap.
+- **Traceability:** Can you trace each design artifact back to a specific scope item? Orphan artifacts (design decisions that don't serve any scope item) should be questioned.
 - Can you actually build the scope from this design alone?
 - Do the artifacts agree with each other?
 - Are the contracts specific enough to implement without guessing?
@@ -211,31 +213,45 @@ Iterate until the reviewer is satisfied (same escalation ladder as requirement e
 
 #### 2c. Present Design to User
 
-Format the design for review — **highlight 🟡 and 🔴 items, minimize noise from 🟢 items:**
+Format the design for review — **organized by scope item, not by technical category.** The user should be able to match each design decision to the will-build list from Step 1:
 
 ```
 [Meridian] 🏗️ Design Review
 
-🟢 High confidence (will proceed unless you object):
-  • File structure: src/{api,models,services,utils}/
-  • Error handling: custom exception classes + global handler
-  • Config: environment variables via python-dotenv
+Scope Item → Design
 
-🟡 Review recommended:
-  1. Data Model:
-     → [Current] PostgreSQL with SQLAlchemy ORM
-     → [Alt] SQLite for simpler deployment
-  2. Auth approach:
-     → [Current] JWT with refresh tokens
-     → [Alt] Session-based cookies
+1. ✅ Multi-format input (.xlsx, .xls, .csv, .ods)
+   🟢 ReaderFactory pattern — one reader per format, common RawSheet interface
+      Reader interface: read(path) → RawSheet { cells, metadata, merge_ranges }
 
-🔴 Need your input:
-  3. API style:
-     → [A] REST with OpenAPI spec
-     → [B] GraphQL
-     → [C] gRPC
+2. ✅ LLM-powered semantic structure detection
+   🟢 Two-phase pipeline: heuristic candidate → LLM refinement
+      Input: RawSheet → Output: DetectedTable[] with confidence scores
+   🟡 LLM prompt strategy:
+      → [Current] Single-shot with full grid context
+      → [Alt] Two-stage: region detection → header classification
 
-Reply: 1A 2A 3A (or Enter for all current/recommended)
+3. ✅ Schema inference + type coercion
+   🟢 Statistical type inference: sample N rows, vote on type per column
+      Types: string, integer, float, date, currency, percentage, boolean
+
+4. ✅ Multi-output formats (JSON, CSV, SQLite, Parquet)
+   🟢 Formatter interface: format(ParseResult) → bytes/file
+      Each format independently testable
+
+...
+
+Cross-cutting:
+  • File structure: src/excel_parser/{readers,detection,schema,output}/
+    → serves: #1 (readers/), #2 (detection/), #3 (schema/), #4 (output/)
+  • Error handling: Result[T, Error] pattern
+    → serves: all — every scope item needs error paths
+  • Config: .env for API keys, TOML for parse options
+    → serves: #2 (LLM keys), user-configurable behavior
+
+🔴 Need your input: [if any]
+
+Reply: Enter for all current, or "2A" / "2B" for specific choices
 ```
 
 After user confirms → store ALL design artifacts in memory:
@@ -245,9 +261,256 @@ $HARNESS memory-update --file architecture --content "<full design document: all
 
 This architecture file now becomes the **binding contract** for all execution. Every task must implement against this design, and every verification checks conformance to it.
 
-### Step 2.5 — Core Hypothesis Validation (MANDATORY)
+### Step 3 — Strategic Decomposition
 
-**Purpose:** Before decomposing into 10+ tasks and building infrastructure, validate that the core technical approach actually works on real data. This catches fundamental flaws (wrong API format, broken coordinate systems, prompt failures, unsupported edge cases) when they're cheap to fix — not after 14 tasks of scaffolding.
+You are the strategic layer. Read the **confirmed design** and decompose it into a structured task plan.
+
+**Think through:**
+1. What is the user actually asking for? What are the implicit requirements?
+2. What technology stack makes sense? (If the choice is non-obvious or irreversible, add to decisions_pending)
+3. Break into 5-15 module-level tasks, ordered by dependency
+4. **Each task MUST have a `kind` field** classifying its type. Valid kinds:
+   - `scaffolding` — project init, directory setup, config files
+   - `core` — core business logic, primary functionality
+   - `feature` — user-facing feature implementation
+   - `integration` — integration checkpoint, cross-module verification
+   - `refactor` — code restructuring without behavior change
+   - `test` — dedicated testing/eval tasks
+   - `docs` — documentation only
+   - `infra` — CI/CD, deployment, tooling infrastructure
+5. **Each task needs STRUCTURED acceptance criteria** — not free-text strings but typed criterion objects. Every criterion must have `type` and `description`. The harness mechanically validates the schema and rejects malformed criteria.
+
+   **Criterion types and required fields:**
+
+   | Type | Required Fields | When to Use |
+   |---|---|---|
+   | `mechanical` | `description`, optionally `verify_command` | Basic pass/fail checks (tests pass, file exists, build succeeds) |
+   | `unit` | `description`, optionally `verify_command` | Specific unit test assertions |
+   | `integration` | `description`, `expected`, optionally `verify_command` | Module boundary/API contract checks |
+   | `e2e` | `description`, `scenario`, `steps[]`, `expected` | End-to-end user scenario validation |
+   | `real_data` | `description`, `data_source`, `expected`, + `data_file` or `fetch_command` | Real-world data validation |
+
+   **Task-level rules (enforced in strict mode):**
+   - `core` and `feature` tasks MUST have at least 1 `e2e` or `integration` criterion
+   - `core` tasks MUST have at least 1 `real_data` criterion if the project has eval config
+   - `scaffolding`, `docs`, and `infra` tasks are exempt from e2e/real_data requirements
+   - `refactor` tasks must have regression/integration verification
+
+6. **Integration checkpoints are mandatory.** After every 3-4 build tasks, insert an integration task that verifies the built modules work together end-to-end. Its acceptance criteria must include launching the actual product and exercising the core flow.
+7. **The final task must be end-to-end validation** — not another feature, but "launch the product and verify the complete user journey works." Acceptance criteria: the product starts, the core workflow executes successfully, and the output is what the user asked for.
+7. **Eval dataset task (if applicable) is a FIRST-CLASS deliverable, not an afterthought.** For projects with accuracy/quality goals, include a dedicated task early in the plan for building the eval dataset. This task must:
+
+   **Data sourcing priority (in order — exhaust each before falling back):**
+   1. **Public datasets & benchmarks** — search GitHub, Kaggle, HuggingFace, academic repos, government open data for existing test data in your domain. For Excel parsing: search for "sample Excel files", "test spreadsheets", financial report templates, government data releases. For NLP: use established benchmarks. For image: use standard test sets. Download and curate.
+   2. **Real-world samples from public sources** — company annual reports (SEC EDGAR), government statistics (census.gov, data.gov), open data portals, template galleries. These are real files created by real humans with real messiness.
+   3. **Community/open-source test suites** — look for test fixtures in related open-source projects (e.g., openpyxl's test suite has real Excel files, pandas test data, etc.)
+   4. **Realistic synthetic generation (LAST RESORT)** — only when categories 1-3 don't cover a specific edge case. When generating: model the synthetic data on a REAL example you found — same structure, similar complexity, realistic values. NOT Alice/Bob/Carol with 3 rows.
+
+   **Self-generated toy data is NOT eval data.** If the agent creates simple.xlsx with 3 rows and 4 clean columns, that's a unit test fixture, not eval data. The eval dataset must contain files the agent has never "seen" during development — files that surprise it.
+
+   **Minimum bar:** The eval task acceptance criteria must include:
+   - At least 30 files sourced from categories 1-3 above (not self-generated)
+   - Each difficulty category from the technical analysis has ≥ 3 real-world files
+   - Ground truth annotations with field-level detail
+   - The eval dataset task itself gets verification reviewed — the reviewer checks if the data is realistic enough to actually test the product
+8. **Core-first ordering (CRITICAL).** Tasks must be ordered so the CORE FUNCTION is built and validated on real data BEFORE any auxiliary features:
+   - **Phase 1 — Core:** project scaffolding → core processing logic → real-data integration test. The integration test MUST use real-world input files (from Step 2.5 or the eval dataset), not synthetic fixtures. The core must pass this test before Phase 2 begins.
+   - **Phase 2 — Auxiliary:** CLI, output formatters, batch processing, caching, config system, progress bars, etc. These tasks are BLOCKED until Phase 1's real-data integration test passes.
+   - **Phase 3 — Polish:** documentation, eval framework, E2E validation.
+
+   **Why:** Building 4 output formatters, a CLI with 6 commands, and a batch processing system before verifying the parser produces correct output is building a mansion on quicksand. The Excel parser project built 493 tests, 30+ models, and a full CLI — but the core parser produced wrong results on every real file. All that infrastructure was wasted effort.
+9. **Integration tests run with intended product configuration (CRITICAL).** The integration checkpoint and eval tasks MUST exercise the product with its core features ENABLED — not in fallback/degraded mode. If the product is designed to use LLM, integration tests run WITH LLM. If the product is designed to use a database, integration tests run WITH the database. Testing only the fallback path proves the fallback works — it proves nothing about the actual product.
+
+   **Concrete rule:** The acceptance criteria for integration tasks (T9-equivalent) and eval tasks (T11-equivalent) MUST include: "Run with the product's intended configuration (all core features enabled). If a core feature requires an API key or external service, use the one the user provided." Do NOT use `--no-llm`, `use_llm=False`, or equivalent flags in integration tests unless specifically testing fallback behavior as a secondary test.
+
+**Output a JSON plan** and save to a temp file, then store via harness:
+
+```json
+{
+  "project": {
+    "name": "project-name",
+    "description": "one-line summary",
+    "tech_stack": "Python + FastAPI + SQLite"
+  },
+  "tasks": [
+    {
+      "id": "T1",
+      "title": "Project initialization",
+      "description": "Create project structure, pyproject.toml, basic directory layout",
+      "kind": "scaffolding",
+      "acceptance_criteria": [
+        { "type": "mechanical", "description": "pyproject.toml exists with project metadata" },
+        { "type": "mechanical", "description": "src/ directory created with __init__.py" },
+        { "type": "mechanical", "description": "README.md exists" }
+      ],
+      "dependencies": [],
+      "priority": 1
+    },
+    {
+      "id": "T2",
+      "title": "Core parsing engine",
+      "description": "Implement the main parsing logic",
+      "kind": "core",
+      "acceptance_criteria": [
+        { "type": "unit", "description": "Parser handles valid input formats", "verify_command": "pytest tests/test_parser.py" },
+        { "type": "e2e", "description": "Parser produces correct output end-to-end",
+          "scenario": "User parses a sample input file and gets structured JSON output",
+          "steps": ["Run: python -m myproject parse tests/fixtures/sample.xlsx --format json"],
+          "expected": "JSON output contains all tables with correct headers and data types" },
+        { "type": "real_data", "description": "Parser handles real SEC EDGAR filing",
+          "data_source": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany",
+          "data_file": "eval/real-data/sec-10k-2024.xlsx",
+          "expected": "Extracts financial summary table with correct column headers and numeric values" }
+      ],
+      "dependencies": ["T1"],
+      "priority": 2
+    }
+  ],
+  "decisions_pending": [
+    {
+      "id": "D1",
+      "question": "Database choice",
+      "options": [
+        { "id": "A", "choice": "SQLite", "pros": "zero config", "cons": "no concurrent writes", "recommendation": true },
+        { "id": "B", "choice": "PostgreSQL", "pros": "production-grade", "cons": "needs deployment" }
+      ],
+      "severity": "irreversible",
+      "blockingTasks": ["T3"]
+    }
+  ]
+}
+```
+
+**Validate the plan before storing:**
+```bash
+# Strict validation — rejects plans with missing e2e criteria, legacy string format, etc.
+$HARNESS validate-plan --plan .meridian/plan.json --dir $MERIDIAN_DIR --strict
+# If valid, store it:
+$HARNESS plan-set --plan .meridian/plan.json --dir $MERIDIAN_DIR
+```
+
+Update project memory:
+```bash
+$HARNESS memory-update --file project_brief --content "<project brief based on requirement + tech stack + constraints>" --dir $MERIDIAN_DIR
+$HARNESS memory-update --file architecture --content "<initial architecture overview>" --dir $MERIDIAN_DIR
+```
+
+**If the project has eval targets** (AI/ML projects, parsers, anything with accuracy goals), create `.meridian/eval_config.json`:
+```json
+{
+  "eval_command": "python -m myproject eval --json",
+  "targets": {
+    "table_detection": { "metric": "table_detection_f1", "min": 0.85 },
+    "header_accuracy": { "metric": "header_accuracy", "min": 0.85 },
+    "field_accuracy": { "metric": "field_accuracy", "min": 0.85 }
+  }
+}
+```
+The mechanical verifier will run this command and **reject any task completion where metrics fall below targets**. This is NOT optional — if the plan defines accuracy goals, they must be mechanically enforced.
+
+### Step 3.5 — Verification Plan Review 👤
+
+**Purpose:** Design an **eval framework** that can independently and fairly score the product end-to-end. This is NOT a per-task test checklist — it's a product-level verification system with concrete metrics, real data, and objective scoring. The user reviews and approves this framework before any code is written.
+
+**The eval framework answers ONE question:** "Given the finished product and a set of real inputs, can we mechanically determine if the product works?"
+
+**What to design (depends on product type):**
+
+| Product Type | Eval Framework Focus | Example |
+|---|---|---|
+| **Tool/parser** | Accuracy metrics on real dataset | Parse 50 real Excel files → compare output to ground truth → field_accuracy ≥ 0.90 |
+| **Game** | E2E playthrough scenarios | Complete level 1-3 autonomously → score ≥ threshold, no crashes, all mechanics work |
+| **API/service** | Contract test suite + load scenarios | All endpoints return correct responses for 100 real request patterns |
+| **CLI tool** | Input/output matrix | 20 real-world input files × expected output → diff against golden files |
+| **Library** | Benchmark suite | Public benchmark X → results ≥ published baseline |
+
+**What to present to the user:**
+
+```
+[Meridian] 🔍 Eval Framework Design
+
+Product: Excel parser with LLM-powered structure detection
+
+━━━ Eval Pipeline ━━━
+
+  Real input files (≥30, from ≥3 sources)
+       ↓
+  Run product: python -m parser parse <file> --json
+       ↓
+  Compare output to ground truth annotations
+       ↓
+  Score per file: table_detection, header_accuracy, field_accuracy
+       ↓
+  Aggregate metrics across dataset
+
+━━━ Metrics & Targets ━━━
+
+  table_detection_f1:  ≥ 0.92  (can we find all tables?)
+  header_accuracy:     ≥ 0.90  (are column names correct?)
+  field_accuracy:      ≥ 0.90  (are cell values correct?)
+  error_rate:          ≤ 0.05  (crashes / unhandled files)
+
+━━━ Dataset ━━━
+
+  Source                        Files   Difficulty
+  SEC EDGAR 10-K filings        10      medium-hard (merged cells, footnotes)
+  Government data (data.gov)    8       easy-medium (clean tables)
+  openpyxl test fixtures         7       easy (standard formats)
+  CJK financial reports          5       hard (mixed languages, complex headers)
+  Total: 30 files, 4 sources, 3 difficulty levels
+
+━━━ E2E Acceptance Scenarios ━━━
+
+  1. Single-file parse:  parse SEC-10K.xlsx → JSON with correct tables
+  2. Batch processing:   parse eval/*.xlsx → all files succeed, metrics above target
+  3. Error handling:     parse corrupt.xlsx → graceful error, no crash
+  4. Full user journey:  inspect → parse → export JSON + CSV + SQLite
+
+━━━ How Verification Uses This ━━━
+
+  The eval framework is built as a task (by execution layer).
+  The verification layer runs it independently on every core task completion.
+  Metrics below target = FAIL, regardless of how many unit tests pass.
+
+⚠️  This framework determines the quality bar for the entire project.
+    If the metrics are too lenient or the dataset too easy,
+    a broken product will pass all checks.
+
+Reply:
+  Enter → approve
+  "raise header_accuracy to 0.95" → adjust target
+  "add source: <url>" → add real-data source
+  "add scenario: <description>" → add E2E acceptance scenario
+  "the dataset needs more hard cases" → request difficulty adjustment
+```
+
+**Rules:**
+- Present AFTER decomposition (Step 3) — the strategic layer needs to understand the product to design eval
+- Present BEFORE hypothesis validation (Step 4) — the spike is judged against these criteria
+- Focus on **product-level outcomes**, not per-task granularity — "can the parser handle real Excel files at 90% accuracy?" not "does T3 have 3 e2e scenarios?"
+- The eval framework becomes a **task** in the plan (built by execution layer), but its **design** is user-approved
+- The verification layer runs the eval independently — the eval framework is a tool for verification, not a test written by execution for itself
+
+**Key design decisions the user should weigh in on:**
+- **Metric targets:** Are they ambitious enough? 0.85 is a smoke test, 0.90 is baseline, 0.95 is production-grade
+- **Dataset composition:** Are the hard cases hard enough? Are edge cases covered?
+- **E2E scenarios:** Do they represent real user journeys, not just happy paths?
+- **Scoring fairness:** Would this eval catch a broken product, or would a mediocre product still score well?
+
+**Red flags the user should watch for:**
+- Eval targets below 0.90 → "Is this really acceptable for production use?"
+- Dataset with no hard cases → "This eval will pass even if the product only handles easy inputs"
+- No error/crash test scenarios → "What if the user feeds malformed data?"
+- All data from one source → "This tests one type of input, not the real world"
+- Metrics that don't cover the core value prop → "We're measuring the wrong thing"
+
+**After user approves:** Store the eval framework design in memory and create the eval task in the plan. The execution layer builds the eval pipeline as code. The verification layer uses it to score every core task's output independently.
+
+### Step 4 — Core Hypothesis Validation (MANDATORY)
+
+**Purpose:** After the user confirms the verification plan (Step 3.5), validate that the core technical approach actually works on real data BEFORE building infrastructure. This catches fundamental flaws (wrong API format, broken coordinate systems, prompt failures, unsupported edge cases) when they're cheap to fix.
+
+**Why this runs AFTER verification plan review:** The hypothesis validation must be judged against user-approved acceptance criteria, not self-defined success metrics. The user may have added criteria or strengthened expectations in Step 3.5. The spike's success/failure is measured against THOSE criteria.
 
 **Protocol:**
 
@@ -272,13 +535,13 @@ This architecture file now becomes the **binding contract** for all execution. E
 4. **Report findings to the strategic layer:**
    ```
    [Meridian] 🔬 Core hypothesis validation
-   
+
    Tested: 5 real files (2 easy, 2 medium, 1 hard)
    Results:
      ✅ Easy files: core approach works, output correct
      ⚠️ Medium files: approach works but [specific issue]
      ❌ Hard file: [fundamental problem] — need to [adjust approach]
-   
+
    Revised approach: [if needed]
    Ready to decompose: YES/NO
    ```
@@ -289,106 +552,6 @@ This architecture file now becomes the **binding contract** for all execution. E
 
 **Why this step exists:** In the Excel parser project, 14 tasks were built (30+ models, 5-layer pipeline, 493 tests) before discovering that the LLM prompt had a coordinate system mismatch (0-based vs 1-based) that made EVERY LLM result wrong. A 30-minute spike on a single real file would have caught this before any infrastructure was built.
 
-### Step 3 — Strategic Decomposition
-
-You are the strategic layer. Read the **confirmed design** and decompose it into a structured task plan.
-
-**Think through:**
-1. What is the user actually asking for? What are the implicit requirements?
-2. What technology stack makes sense? (If the choice is non-obvious or irreversible, add to decisions_pending)
-3. Break into 5-15 module-level tasks, ordered by dependency
-4. Each task needs concrete, mechanically verifiable acceptance criteria — not "code is good" but "running `npm test` passes" or "file src/auth.ts exports function `login`"
-5. **Integration checkpoints are mandatory.** After every 3-4 build tasks, insert an integration task that verifies the built modules work together end-to-end. Its acceptance criteria must include launching the actual product and exercising the core flow.
-6. **The final task must be end-to-end validation** — not another feature, but "launch the product and verify the complete user journey works." Acceptance criteria: the product starts, the core workflow executes successfully, and the output is what the user asked for.
-7. **Eval dataset task (if applicable) is a FIRST-CLASS deliverable, not an afterthought.** For projects with accuracy/quality goals, include a dedicated task early in the plan for building the eval dataset. This task must:
-   
-   **Data sourcing priority (in order — exhaust each before falling back):**
-   1. **Public datasets & benchmarks** — search GitHub, Kaggle, HuggingFace, academic repos, government open data for existing test data in your domain. For Excel parsing: search for "sample Excel files", "test spreadsheets", financial report templates, government data releases. For NLP: use established benchmarks. For image: use standard test sets. Download and curate.
-   2. **Real-world samples from public sources** — company annual reports (SEC EDGAR), government statistics (census.gov, data.gov), open data portals, template galleries. These are real files created by real humans with real messiness.
-   3. **Community/open-source test suites** — look for test fixtures in related open-source projects (e.g., openpyxl's test suite has real Excel files, pandas test data, etc.)
-   4. **Realistic synthetic generation (LAST RESORT)** — only when categories 1-3 don't cover a specific edge case. When generating: model the synthetic data on a REAL example you found — same structure, similar complexity, realistic values. NOT Alice/Bob/Carol with 3 rows.
-   
-   **Self-generated toy data is NOT eval data.** If the agent creates simple.xlsx with 3 rows and 4 clean columns, that's a unit test fixture, not eval data. The eval dataset must contain files the agent has never "seen" during development — files that surprise it.
-   
-   **Minimum bar:** The eval task acceptance criteria must include:
-   - At least 30 files sourced from categories 1-3 above (not self-generated)
-   - Each difficulty category from the technical analysis has ≥ 3 real-world files
-   - Ground truth annotations with field-level detail
-   - The eval dataset task itself gets verification reviewed — the reviewer checks if the data is realistic enough to actually test the product
-8. **Core-first ordering (CRITICAL).** Tasks must be ordered so the CORE FUNCTION is built and validated on real data BEFORE any auxiliary features:
-   - **Phase 1 — Core:** project scaffolding → core processing logic → real-data integration test. The integration test MUST use real-world input files (from Step 2.5 or the eval dataset), not synthetic fixtures. The core must pass this test before Phase 2 begins.
-   - **Phase 2 — Auxiliary:** CLI, output formatters, batch processing, caching, config system, progress bars, etc. These tasks are BLOCKED until Phase 1's real-data integration test passes.
-   - **Phase 3 — Polish:** documentation, eval framework, E2E validation.
-   
-   **Why:** Building 4 output formatters, a CLI with 6 commands, and a batch processing system before verifying the parser produces correct output is building a mansion on quicksand. The Excel parser project built 493 tests, 30+ models, and a full CLI — but the core parser produced wrong results on every real file. All that infrastructure was wasted effort.
-9. **Integration tests run with intended product configuration (CRITICAL).** The integration checkpoint and eval tasks MUST exercise the product with its core features ENABLED — not in fallback/degraded mode. If the product is designed to use LLM, integration tests run WITH LLM. If the product is designed to use a database, integration tests run WITH the database. Testing only the fallback path proves the fallback works — it proves nothing about the actual product.
-   
-   **Concrete rule:** The acceptance criteria for integration tasks (T9-equivalent) and eval tasks (T11-equivalent) MUST include: "Run with the product's intended configuration (all core features enabled). If a core feature requires an API key or external service, use the one the user provided." Do NOT use `--no-llm`, `use_llm=False`, or equivalent flags in integration tests unless specifically testing fallback behavior as a secondary test.
-
-**Output a JSON plan** and save to a temp file, then store via harness:
-
-```json
-{
-  "project": {
-    "name": "project-name",
-    "description": "one-line summary",
-    "tech_stack": "Python + FastAPI + SQLite"
-  },
-  "tasks": [
-    {
-      "id": "T1",
-      "title": "Project initialization",
-      "description": "Create project structure, pyproject.toml, basic directory layout",
-      "acceptance_criteria": [
-        "pyproject.toml exists with project metadata",
-        "src/ directory created with __init__.py",
-        "README.md exists"
-      ],
-      "dependencies": [],
-      "priority": 1
-    }
-  ],
-  "decisions_pending": [
-    {
-      "id": "D1",
-      "question": "Database choice",
-      "options": [
-        { "id": "A", "choice": "SQLite", "pros": "zero config", "cons": "no concurrent writes", "recommendation": true },
-        { "id": "B", "choice": "PostgreSQL", "pros": "production-grade", "cons": "needs deployment" }
-      ],
-      "severity": "irreversible",
-      "blockingTasks": ["T3"]
-    }
-  ]
-}
-```
-
-Save the plan:
-```bash
-# Write plan JSON to .meridian/plan.json then:
-$HARNESS plan-set --plan .meridian/plan.json --dir $MERIDIAN_DIR
-```
-
-Update project memory:
-```bash
-$HARNESS memory-update --file project_brief --content "<project brief based on requirement + tech stack + constraints>" --dir $MERIDIAN_DIR
-$HARNESS memory-update --file architecture --content "<initial architecture overview>" --dir $MERIDIAN_DIR
-```
-
-**If the project has eval targets** (AI/ML projects, parsers, anything with accuracy goals), create `.meridian/eval_config.json`:
-```json
-{
-  "eval_command": "python -m myproject eval --json",
-  "targets": {
-    "table_detection": { "metric": "table_detection_f1", "min": 0.85 },
-    "header_accuracy": { "metric": "header_accuracy", "min": 0.85 },
-    "field_accuracy": { "metric": "field_accuracy", "min": 0.85 }
-  }
-}
-```
-The mechanical verifier will run this command and **reject any task completion where metrics fall below targets**. This is NOT optional — if the plan defines accuracy goals, they must be mechanically enforced.
-
-**DO NOT ask the user to confirm the plan or "reply to start."** The user already confirmed scope (Step 1) and design (Step 2). The task decomposition is your job as project owner. Print the plan summary for visibility, then immediately begin execution.
 
 ### Step 4 — Handle Decisions
 
@@ -429,12 +592,17 @@ $HARNESS memory-read --file architecture --dir $MERIDIAN_DIR
 $HARNESS memory-read --file completed_tasks --dir $MERIDIAN_DIR
 ```
 
+**Before dispatching execution**, verify the task's acceptance criteria are well-formed. If the plan was created before structured criteria were enforced, upgrade them now:
+- Ensure each criterion is a structured object with `type` and `description`
+- `core`/`feature` tasks must have at least 1 `e2e` or `integration` criterion
+- If criteria need upgrading, use `plan-adjust` to update them before dispatching
+
 Create a detailed execution prompt by filling in the template from Appendix E (Execution Subagent Prompt) with:
 - `{project_brief}`: from memory
 - `{architecture}`: from memory
 - `{relevant_decisions}`: from decisions_log
 - `{task_description}`: the refined task instructions
-- `{acceptance_criteria}`: from the plan
+- `{acceptance_criteria}`: from the plan — pass the full structured criteria objects, not just descriptions
 - `{dependency_summaries}`: summaries of completed dependency tasks
 - `{iteration_context}`: empty on first attempt
 
@@ -453,54 +621,123 @@ The subagent will:
 3. Run any available tests
 4. Report what it did
 
-#### 5d. Collect Evidence & Run Mechanical Verification
+#### 5d. Dispatch Verification Layer
 
-After the execution subagent completes:
+After the execution subagent completes, the strategic layer dispatches the **verification layer** — a single subagent that owns ALL acceptance verification. The strategic layer does NOT participate in verification; it only reads the final verdict.
 
+**IRON LAW: Evidence-Gated Completion.** Never trust the execution subagent's self-reported results. "Agent says tests pass" is NOT evidence — only fresh results from the verification layer count.
+
+**Architecture — who does what:**
+- **Execution subagent** (LLM) — writes production code + its own tests. These tests are **self-checks only** — they prove the execution layer thinks its code works. They are NOT acceptance tests.
+- **Verification subagent** (LLM) — independent agent in isolated context. Owns ALL acceptance verification:
+  1. Invokes `$HARNESS verify` for baseline checks (execution's tests, lint, build, eval)
+  2. **Independently writes its own E2E and real-data verification scripts** based on acceptance criteria
+  3. Runs those scripts and records results
+  4. Reviews code for spec compliance and quality
+- **Strategic layer** (LLM) — orchestrator. Reads verification subagent's verdict. Decides: PASS → next task, FAIL → retry/escalate. Never verifies anything itself.
+
+**Why verification must write its own tests:**
+The acceptance criteria define WHAT must be true (e.g., "parsing SEC 10-K filing produces 12-column table"). The execution subagent may have written a test for this — but that test was written by the same agent that wrote the code. It may test only the happy path, use trivial assertions, or silently skip the hard cases. The verification layer must independently write its own verification script that exercises the actual product against real data, with assertions it designed itself.
+
+Spawn a **general-purpose subagent** with the unified verification prompt (Appendix F). This subagent gets **minimal context** — only the code changes, acceptance criteria, and harness setup. It CANNOT see the execution subagent's reasoning or approach.
+
+Prepare the verification prompt from Appendix F:
+- `{acceptance_criteria}`: from the plan — full structured criteria objects (the WHAT)
+- `{code_changes}`: use `git diff` output or list changed files with content
+- `{architecture_structure}`: directory structure only (not implementation details)
+- `{will_build_features}`: list of all will-build features from the confirmed scope
+- `{task_id}`: the current task ID
+- `{harness_command}`: the full harness command path
+- `{meridian_dir}`: the .meridian directory path
+
+```
+Task tool: agent_type="general-purpose"
+prompt = <the filled verification prompt>
+```
+
+The verification subagent performs three phases in order:
+
+##### Phase 1 — Baseline Mechanical Check (harness)
+
+The subagent runs the harness for baseline checks — execution's own tests, lint, build:
 ```bash
 $HARNESS verify --dir $MERIDIAN_DIR
 ```
 
-The mechanical verifier checks ALL of the following:
-1. **Tests pass** — run the project's test suite
-2. **Lint clean** — run linter if configured
-3. **Build succeeds** — compile/build if applicable
-4. **Evidence exists** — git shows changed files
-5. **Eval targets met** — if `.meridian/eval_config.json` exists, run the eval command and compare metrics against defined targets. **If header_accuracy target is 85% and actual is 55%, this is a FAIL regardless of whether tests pass.**
-6. **Real-data smoke test (for core tasks)** — if the task implements core processing logic, run the product on at least ONE real-world input file (from Step 2.5 or eval dataset) and verify the output is not empty/garbage. This catches bugs that unit tests miss — coordinate mismatches, encoding issues, prompt failures, silent degradation.
+This verifies that the execution layer's self-checks pass (tests, lint, build, git evidence, eval targets). These are necessary but not sufficient — passing execution's own tests only proves the code does what the coder intended, not what the product should do.
 
-The verdict is FAIL if ANY check fails. "493 tests passing" does not override "eval accuracy below target" or "output is wrong on real data."
+If baseline fails, the subagent reports FAIL immediately. **Do not proceed to Phase 2.**
 
-**CRITICAL: "Tests pass" ≠ "Product works."** Tests written by the same agent that wrote the code, running against synthetic data generated by the same agent, prove nothing about real-world behavior. The mechanical verifier MUST include at least one check against real data or an external benchmark. If the only evidence is self-written tests, the strategic layer should treat the task as UNVERIFIED, not PASSED.
+##### Phase 2 — Independent Acceptance Verification (verification-owned)
 
-#### 5e. Dispatch Verification Reviewer
+**This is the core of verification independence.** The subagent reads the acceptance criteria and writes its own verification scripts for each `e2e`, `integration`, and `real_data` criterion. These scripts are written by the verification layer, NOT the execution layer.
 
-Spawn another **general-purpose subagent** with the verification review prompt. This subagent gets **minimal context** — only the code changes and acceptance criteria. It CANNOT see the execution subagent's reasoning or approach.
+For each criterion:
 
-Prepare the verification review prompt from Appendix F (Verification Review Prompt):
-- `{acceptance_criteria}`: from the plan
-- `{code_changes}`: use `git diff` output or list changed files with content
-- `{architecture_structure}`: directory structure only (not implementation details)
-- `{will_build_features}`: list of all will-build features from the confirmed scope — the reviewer checks these are ACTUALLY USED in the code, not just present as dead code
+1. **Read the criterion** — understand the `scenario`, `steps`, `expected`, `data_file`
+2. **Write an independent verification script** — a self-contained script that:
+   - Exercises the product as described in `steps`
+   - Checks the actual output against `expected`
+   - Uses `data_file` for real-data criteria
+   - Fails (exit 1) if the expected outcome is not met
+3. **Save the script** to `.meridian/verification/` (separate from execution's tests)
+4. **Run it** and read the output
+5. **Record result** — pass/fail with actual output as evidence
+
+**Example:** For an E2E criterion `"parsing SEC filing → 12-column table"`:
+```python
+# Written by verification subagent, NOT execution subagent
+import subprocess, json
+result = subprocess.run(["python", "-m", "parser", "parse", "eval/sec-10k.xlsx", "--json"], capture_output=True)
+output = json.loads(result.stdout)
+tables = output.get("tables", [])
+assert len(tables) >= 1, f"Expected tables, got {len(tables)}"
+assert len(tables[0]["headers"]) == 12, f"Expected 12 columns, got {len(tables[0]['headers'])}"
+print(f"PASS: {len(tables)} tables, {len(tables[0]['headers'])} columns")
+```
+
+**For `mechanical` and `unit` criteria:** The verification subagent verifies these by reading code and confirming the condition is met — no separate script needed.
+
+If any acceptance criterion fails, the subagent reports FAIL. **Do not proceed to Phase 3.**
+
+##### Phase 3 — Spec Compliance & Code Review
+
+Only runs after Phase 2 passes. The subagent reviews:
+- Will-build features ACTUALLY USED (not dead code)
+- Code quality: bugs, logic errors, security vulnerabilities
+- Test quality of execution's tests (real behavior vs mock behavior)
+- Unnecessary complexity, dead code, YAGNI violations
+
+**Evidence Requirements Table:**
+
+| Claim | Required Evidence | NOT Sufficient |
+|---|---|---|
+| Tests pass | Fresh harness output: 0 failures | Previous run, execution subagent's report |
+| E2E works | Verification-written script passes on real scenario | Execution's own E2E test passing |
+| Real data handled | Verification runs product on real data, checks output | Execution's synthetic test data |
+| Requirements met | Verification's independent criterion-by-criterion check | Execution's tests passing |
+| Task complete | All 3 phases pass | Any single phase alone |
+
+**Red flags — the verification subagent MUST STOP if it catches itself:**
+- Reusing execution's test scripts instead of writing its own
+- Trusting execution's test output as acceptance evidence
+- Using "should", "probably", "seems to" about results
+- Running partial checks and extrapolating
+
+#### 5e. Synthesize Verdict
+
+The strategic layer reads the verification subagent's output:
 
 ```
-Task tool: agent_type="general-purpose"
-prompt = <the filled verification review prompt>
-```
-
-Parse the subagent's JSON output as findings array.
-
-#### 5f. Synthesize Verdict
-
-Combine mechanical verification and verification review:
-
-```
-IF mechanical verdict is FAIL → overall FAIL
-ELSE IF verification review findings contain any "critical" severity → overall FAIL
+IF mechanical verdict (Phase 1) is FAIL → overall FAIL
+ELSE IF spec compliance (Phase 2) returns spec_compliant: false → overall FAIL
+ELSE IF code quality (Phase 3) findings contain any "critical" severity → overall FAIL
 ELSE → overall PASS
 ```
 
-#### 5g. Handle Verdict
+**CRITICAL: "Tests pass" ≠ "Product works."** Tests written by the same agent that wrote the code, running against synthetic data generated by the same agent, prove nothing about real-world behavior. If the only evidence is self-written tests with no real-data or per-criterion checks, the strategic layer should treat the task as UNVERIFIED, not PASSED.
+
+#### 5f. Handle Verdict
 
 **On PASS:**
 ```bash
@@ -541,7 +778,7 @@ Integration failures are different from regular task failures — the problem us
 
 6. **If you can't identify which task is at fault** — this is a sign the decomposition was too coarse. Use `plan-adjust` to insert a new diagnostic task between the suspected modules, or split the integration checkpoint into smaller integration tests.
 
-**`action: "retry"`** — Still have attempts left. Go back to Step 3c with iteration context (fill Appendix G (Iteration Fix Context) with findings).
+**`action: "retry"`** — Still have attempts left. Go back to Step 5c with iteration context (fill Appendix G (Iteration Fix Context) with findings).
 
 **`action: "rethink"`** — 3 retries failed with the same approach. As the strategic layer, you must:
 1. Analyze the failure pattern across all 3 attempts — is it the same error repeating? or different errors each time?
@@ -565,10 +802,10 @@ Integration failures are different from regular task failures — the problem us
 2. Give the user **options**, not open-ended questions:
    ```
    [Meridian] 🔴 Task T3 blocked after exhausting all strategies
-   
+
    Tried: 3 retries → rethink → split → skip
    Core issue: <your analysis of the root cause>
-   
+
    → [A] Simplify: reduce scope of this task to <specific reduction>
    → [B] Skip: remove this feature entirely, adjust downstream tasks
    → [C] Manual: I'll provide specific guidance for the implementation
@@ -620,15 +857,15 @@ $HARNESS report-due --dir $MERIDIAN_DIR
 
 If due, format and present to user.
 
-### Step 6b — Handle reverify tasks
+### Step 7b — Handle reverify tasks
 
 After a checkpoint that reopened tasks, some downstream tasks may be in `reverify` status. For each:
 
-1. Re-run the verification loop (Step 3d-3f) against the current code — the dependency was changed, need to confirm this task's output is still valid
+1. Re-run the verification loop (Step 5d-5e) against the current code — the dependency was changed, need to confirm this task's output is still valid
 2. If PASS → mark back to `done`
 3. If FAIL → treat as a normal failure (enter the execution-verify iteration loop)
 
-### Step 6c — Requirement Evolution (Layer 4)
+### Step 7c — Requirement Evolution (Layer 4)
 
 If the user invokes `/meridian <new requirement>` while a run is active (detected via `mode: "active"` in Step 0):
 
@@ -637,7 +874,7 @@ If the user invokes `/meridian <new requirement>` while a run is active (detecte
 3. Use `$HARNESS plan-adjust` to add new tasks with correct dependencies on existing tasks
 4. Continue the task execution loop — new tasks will be picked up in dependency order
 
-### Step 6d — Eval-Driven Quality Loop (Layer 5, AI/ML projects)
+### Step 7d — Eval-Driven Quality Loop (Layer 5, AI/ML projects)
 
 For projects that involve AI/LLM output (parsing, classification, generation, extraction), code that compiles and tests that pass are NOT enough. The AI output must be **measurably good**. This step runs after the core AI functionality is built and the eval task is complete.
 
@@ -757,7 +994,7 @@ When all tasks are done:
    ```
    [Meridian] ✅ Run complete!
    Tasks: 8/8 done | Iterations: 3 total | Decisions: 2 resolved
-   
+
    Built: <project description>
    Key files: <list main entry points>
    Run: <how to start/test the project>
@@ -781,6 +1018,132 @@ When all tasks are done:
 | Demote core feature to optional enhancement | Scope says "LLM-powered X" but implementation makes LLM a secondary add-on that doesn't change results. Heuristic fallback becomes the primary path. | If expansion says "X-powered Y", then X MUST be the primary code path, not an enhancement. The fallback exists for resilience, but integration tests must run WITH X enabled and show X improves results vs fallback. If X doesn't improve results, the integration is broken — fix it before moving on. |
 | "Graceful degradation" as scope item for core feature | Having "works without LLM" as a will-build alongside "LLM-powered parsing" creates a perverse incentive: the system is designed to not need its own core feature. The fallback becomes the primary path. | Degradation/fallback is an implementation detail of the core feature, NOT a separate scope item. Never list "works without X" alongside "X-powered Y" as equal will-build items. The core feature task owns its own fallback behavior. |
 | Test integration with core features disabled | Integration tests use `use_llm=False` or `--no-llm`, so the product's primary capability is never actually tested end-to-end. 102 tests pass but none exercise the core feature. | Integration tests (T9) and eval (T11) MUST run with the product's intended configuration. Test fallback mode separately as a resilience check, not as the primary integration test. |
+| Use free-text acceptance criteria | "tests pass" is vague, unmeasurable, and lets the agent self-judge | Use structured criteria objects with `type`, `description`, `expected`, `steps` — harness validates schema |
+| Skip e2e criteria for "obvious" tasks | Without e2e verification, code that compiles ≠ code that works | Every `core`/`feature` task needs at least 1 `e2e` or `integration` criterion |
+| Use self-generated toy data for validation | 3-row synthetic tables prove nothing about real-world behavior | Use `real_data` criteria with `data_source` pointing to public datasets |
+| Say "Done!" before running verify | Claiming completion without evidence is dishonesty, not efficiency | Run `$HARNESS verify`, read full output, THEN claim done |
+| Trust execution subagent's "success" report | The implementer may be optimistic, incomplete, or wrong | Verify independently: read actual code, re-run tests, check VCS diff |
+| "Should work now" / "I'm confident" | Confidence ≠ evidence. "Should" means you didn't run it | Run the verification command. Read the output. Only then claim |
+| Run code quality review before spec compliance | Beautiful code that builds the wrong thing is still wrong | Stage 1 (spec compliance) must pass BEFORE Stage 2 (code quality) starts |
+| Use previous verification run as evidence | Previous run was before the latest code change | Every claim requires fresh evidence from the same verification act |
+
+---
+
+## Anti-Rationalization Red Flags
+
+**STOP immediately** if you catch yourself (or the execution subagent) using any of these phrases:
+
+| Red Flag Phrase | What It Really Means | Required Action |
+|---|---|---|
+| "Should work now" | Haven't verified | Run `$HARNESS verify` and read output |
+| "I'm confident this is correct" | Confidence is not evidence | Execute the verification command |
+| "Tests should pass" | Haven't run them | Run them and paste stdout |
+| "Minor change, no test needed" | Minor changes cause regressions | Run full test suite |
+| "Code looks correct by inspection" | Inspection misses runtime bugs | Execute end-to-end |
+| "It's basically the same as before" | "Basically" hides breaking changes | Run full regression |
+| "The agent reported success" | Agent self-reports are unreliable | Check VCS diff, re-run verify independently |
+| "Partial check is enough" | Partial proves nothing about the whole | Run complete verification |
+| "Great!", "Perfect!", "All done!" | Premature celebration without evidence | Back up, run verify, then celebrate |
+
+**Historical failures these catch:**
+- Agent claimed "100% accuracy" on 18 self-generated files → 0% on real data
+- Agent reported "all tests pass" → hadn't actually run them
+- Agent said "minor fix, tests still pass" → introduced 3 regressions
+- Agent marked task complete → core feature was dead code (never called)
+
+---
+
+## Acceptance Criteria Quality Rules
+
+Acceptance criteria are the **contract** between layers. They define WHAT to verify, not HOW. The strategic layer and user define criteria; the verification layer independently decides how to test them.
+
+**Critical separation of concerns:**
+- **Strategic layer** (+ user in Step 3.5): defines criteria — WHAT must be true for the task to pass
+- **Execution layer**: writes production code + its own tests (self-check, NOT trusted for acceptance)
+- **Verification layer**: independently designs and runs its own verification scripts based on the criteria
+
+**The execution layer's tests are NOT acceptance tests.** They are self-checks. The execution subagent can write 500 tests that all pass — this is irrelevant to acceptance. The verification layer writes its own independent verification based on the criteria.
+
+### Criterion Schema
+
+Every criterion is a typed object (not a free-text string). Criteria define the **WHAT** — observable conditions the verification layer must independently confirm:
+
+```json
+{
+  "type": "e2e",                    // REQUIRED: mechanical | unit | integration | e2e | real_data
+  "description": "CLI parse works", // REQUIRED: human-readable description
+  "scenario": "User parses file",   // REQUIRED for e2e — the user journey to verify
+  "steps": ["Run: node cli.js ..."],// REQUIRED for e2e — concrete steps (verification layer will execute these independently)
+  "expected": "JSON with 3 tables", // REQUIRED for e2e, real_data, integration — the observable outcome
+  "data_source": "https://...",     // REQUIRED for real_data (provenance — where the data comes from)
+  "data_file": "eval/file.xlsx",    // REQUIRED for real_data (one of data_file or fetch_command)
+  "fetch_command": "node fetch.js", // Alternative to data_file for real_data
+  "id": "AC-T3-E2E-1"              // OPTIONAL: for traceability in verification results
+}
+```
+
+**Note: `verify_command` is deliberately absent.** Criteria define WHAT to verify, not HOW. The verification layer independently writes and runs its own verification scripts. If the execution layer pre-defines verify_command, it's grading its own homework — the verification loses independence.
+
+### Task-Level Requirements
+
+| Task Kind | E2E/Integration Required? | Real Data Required? | Minimum Criteria |
+|---|---|---|---|
+| `scaffolding` | No | No | ≥1 `mechanical` |
+| `core` | **Yes** (≥1 `e2e` or `integration`) | **Yes** (if eval config exists) | ≥1 `e2e` + ≥1 `real_data` |
+| `feature` | **Yes** (≥1 `e2e` or `integration`) | No (but recommended) | ≥1 `e2e` or `integration` |
+| `integration` | Inherently e2e | Recommended | ≥1 `e2e` |
+| `refactor` | Recommended | No | ≥1 regression check |
+| `test` | Depends on scope | If testing eval data | Context-dependent |
+| `docs` | No | No | ≥1 `mechanical` |
+| `infra` | No | No | ≥1 `mechanical` |
+
+### Validation Commands
+
+```bash
+# Lenient validation (accepts legacy strings with warnings):
+$HARNESS validate-plan --plan .meridian/plan.json --dir $MERIDIAN_DIR
+
+# Strict validation (rejects legacy strings, enforces task-level rules):
+$HARNESS validate-plan --plan .meridian/plan.json --dir $MERIDIAN_DIR --strict
+```
+
+**Rule: Always run `validate-plan --strict` before `plan-set` for new plans.** The strategic layer must ensure every plan passes strict validation before storing it.
+
+---
+
+## Real Data Sourcing Protocol
+
+Real data validation is not just for AI/ML projects. **Any project that processes input or produces output** should be tested against realistic, externally-sourced data. Self-generated toy data proves the code handles cases the developer thought of — not the cases that appear in the real world.
+
+### When Real Data is Required
+
+- **Always required:** `core` tasks when eval config exists (enforced by harness)
+- **Strongly recommended:** any task that processes user-provided input (files, API requests, database queries)
+- **Recommended:** feature tasks where output correctness matters
+- **Not required:** scaffolding, docs, infra, pure refactoring
+
+### Data Sourcing Priority (exhaust each before falling back)
+
+1. **Public datasets & benchmarks** — Search GitHub, Kaggle, HuggingFace, academic repos, government open data portals. For domain-specific data:
+   - **Spreadsheets/documents:** SEC EDGAR filings, government open data (data.gov, census.gov), template galleries
+   - **APIs:** Public API test suites, Postman collections, OpenAPI examples
+   - **NLP/text:** Established benchmarks (SQuAD, GLUE, etc.)
+   - **Images:** Standard test sets (ImageNet subset, CIFAR)
+   - **Structured data:** UCI ML Repository, Kaggle datasets
+
+2. **Open-source test fixtures** — Related projects' test suites often contain real-world test data (e.g., openpyxl's test Excel files, pandas test CSVs, mock API responses from SDK test suites)
+
+3. **Standards-compliant corpora** — RFC examples, W3C test suites, specification samples
+
+4. **Realistic synthetic (LAST RESORT)** — Only when categories 1-3 don't cover a specific edge case. Must be modeled on a REAL example: same structure, similar complexity, realistic values. **NOT** Alice/Bob/Carol with 3 rows.
+
+### Local Reproducibility
+
+Every `real_data` criterion must include either:
+- `data_file`: path to a locally committed fixture file (preferred for stability)
+- `fetch_command`: a command that downloads and caches the data (for large/frequently updated datasets)
+
+Never depend solely on `data_source` URLs — they may disappear, require auth, or change. The local copy ensures deterministic verification.
 
 ---
 
@@ -897,24 +1260,32 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 
 Use this in Step 2a after scope is confirmed.
 
-> You are the project architect. Requirement expanded, scope confirmed. Produce concrete, reviewable design artifacts to guide implementation.
+> You are the project architect. Requirement expanded, scope confirmed. Produce concrete, reviewable design artifacts that map 1:1 to the confirmed scope.
 >
-> **Confirmed Scope:** {expanded_requirement}
+> **Confirmed Scope (will-build list):** {expanded_requirement}
 > **User's Confirmed Choices:** {confirmed_choices}
 > **Existing Project Context:** {existing_project_context}
 >
-> **Produce artifacts appropriate for this project type:**
-> System Architecture (always), Data Model (if persistent data), API Contract (if API), UI Flow (if UI), Component Hierarchy (if frontend-heavy/games), File Structure (always), Key Interfaces (if multi-module), State Machine (if complex state).
+> **CRITICAL: Design MUST map to scope.** For EACH will-build item in the confirmed scope, produce a design that explains HOW it will be built. The output must be organized by scope item, not by technical category. Every will-build item must have a design; every design must trace to a scope item.
 >
-> **For each artifact:** Be concrete (actual field names, types, constraints — not "various fields"). Mark confidence: 🟢 high (proceed) / 🟡 review recommended (alternatives exist) / 🔴 needs user input. Provide alternatives for 🟡/🔴.
+> **For each will-build scope item, specify:**
+> 1. **Scope item:** The exact will-build feature from Step 1
+> 2. **Design approach:** Architecture, data model, interfaces, contracts — concrete enough to implement without guessing
+> 3. **Key interfaces:** Input/output types, function signatures, module boundaries
+> 4. **Confidence:** 🟢 high (proceed) / 🟡 review recommended (alternatives exist) / 🔴 needs user input
+> 5. **Alternatives** (for 🟡/🔴): What other approaches exist and why this one was chosen
+>
+> **Cross-cutting concerns** (file structure, error handling, config, logging) are listed separately but MUST explain which scope items they serve. An orphan design decision that doesn't serve any scope item should be questioned — it may be gold-plating.
+>
+> **Be concrete:** actual field names, types, constraints — not "various fields." Every endpoint with request/response shapes. Every component with its responsibilities.
 >
 > **External Dependencies (CRITICAL):** If the design requires external services, APIs, or credentials (LLM APIs, databases, cloud services, third-party SDKs), you MUST: (1) List every external dependency explicitly. (2) Mark each as 🔴 needs_input — the user must confirm they have access/credentials. (3) Specify exactly what's needed (API key name, env var, account signup URL). Do NOT assume the user has any API key or external account.
 >
-> **Evaluation Strategy (CRITICAL for AI/ML projects):** If the product involves AI/LLM output that needs to be "correct" (parsing, classification, generation, extraction), the design MUST include: (1) An eval dataset specification — what test inputs exist or need to be created, what the expected outputs look like. (2) Accuracy metrics — how do you measure if the AI output is correct? (exact match? field-level accuracy? human judgment?) (3) Ground truth — where does the "right answer" come from? (manually labeled data? existing system output? expert review?) (4) A verification task in the plan that runs the eval and reports metrics. Without eval, you're building an AI system you can never verify.
->
-> **Output:** JSON with `artifacts[]` (type, confidence, content, alternatives, rationale) and `skipped_artifacts[]`.
->
-> **Critical:** Design the CONTRACT between modules, not the implementation. Every field named and typed. Every endpoint with request/response shapes. Every component with its responsibilities.
+> **Output:** JSON with:
+> - `scope_designs[]` — one entry per will-build item: { scope_item, design_approach, interfaces, confidence, alternatives }
+> - `cross_cutting[]` — { concern, design, serves_scope_items[] }
+> - `coverage_check` — { covered_items[], uncovered_items[] } — any uncovered = critical gap
+> - `skipped_artifacts[]`
 
 ### D. Design Verification Review Prompt
 
@@ -923,12 +1294,20 @@ Use this in Step 2b. Independent subagent reviews the design.
 > You are an independent reviewer. Someone else produced a design for a software project. Find problems that would cause implementation to fail or produce an unusable product. You did NOT create this design.
 >
 > **Original Requirement:** {requirement}
-> **Confirmed Scope:** {confirmed_scope}
+> **Confirmed Scope (will-build list):** {confirmed_scope}
 > **Their Design:** {design_artifacts}
 >
-> **Check:** Completeness (can you build from this alone?), Consistency (artifacts agree?), Implementability (can a dev implement without guessing?), Integration points (contracts clear at module boundaries?), Missing infrastructure (error handling, config, logging, migrations?), Confidence honesty (🟢🟡🔴 levels accurate?), **External dependencies (every API/credential listed and marked 🔴?)**, **Eval strategy (if AI/ML: eval dataset + metrics + ground truth defined? Missing = critical gap)**.
+> **Check (in this order):**
+> 1. **Scope coverage (CRITICAL):** Compare the will-build list to the design. For EACH will-build item, is there a corresponding design? List any will-build items with NO design = critical gap. List any design artifacts that don't trace to any will-build item = potential gold-plating.
+> 2. **Completeness:** Can you build EVERY scope item from the design alone, without guessing?
+> 3. **Consistency:** Do the scope_designs agree with each other? Do cross-cutting concerns actually serve the scope items they claim to?
+> 4. **Implementability:** Can a developer implement each scope item from its design without asking questions?
+> 5. **Integration points:** Are contracts clear at module boundaries?
+> 6. **Missing infrastructure:** Error handling, config, logging, migrations?
+> 7. **Confidence honesty:** Are 🟢🟡🔴 levels accurate?
+> 8. **External dependencies:** Every API/credential listed and marked 🔴?
 >
-> **Output:** JSON with `issues[]`, `confidence_overrides[]`, `satisfied` (bool), `summary`.
+> **Output:** JSON with `scope_coverage` (covered[], uncovered[], orphaned[]), `issues[]`, `confidence_overrides[]`, `satisfied` (bool), `summary`. Any uncovered scope item = automatic `satisfied: false`.
 
 ### E. Execution Subagent Prompt
 
@@ -940,7 +1319,15 @@ Use this in Step 5c. Fill placeholders and dispatch as an isolated subagent.
 > **Current Architecture:** {architecture}
 > **Relevant Decisions:** {relevant_decisions}
 > **Your Task:** {task_description}
-> **Acceptance Criteria** (each will be mechanically verified): {acceptance_criteria}
+> **Acceptance Criteria** (structured — each will be mechanically verified):
+> {acceptance_criteria}
+>
+> Each criterion above is a structured object with a `type` (mechanical, unit, integration, e2e, real_data). Pay special attention to:
+> - **e2e criteria**: Execute the exact `steps` and verify the output matches `expected`. Paste the actual terminal output as evidence.
+> - **real_data criteria**: Use the file at `data_file` (or run `fetch_command` to obtain it). Run the product on this real-world input and verify output matches `expected`.
+> - **integration criteria**: Verify the `expected` integration behavior works across module boundaries.
+> - For criteria with `verify_command`: run that command and paste output.
+>
 > **Context from Completed Tasks:** {dependency_summaries}
 > **Working Directory:** {working_directory}
 >
@@ -952,33 +1339,114 @@ Use this in Step 5c. Fill placeholders and dispatch as an isolated subagent.
 >
 > {iteration_context}
 
-### F. Verification Review Prompt
+### F. Unified Verification Prompt
 
-Use this in Step 5e. Independent subagent — give ONLY code changes + acceptance criteria + project structure. NO execution context.
+Use this in Step 5d. Dispatch as a single independent subagent that owns ALL acceptance verification. Give ONLY code changes + acceptance criteria + project structure + harness setup. NO execution context. NO execution subagent's reasoning.
 
-> You are an independent code reviewer. You did not write this code. Your only job: **find problems.**
+> You are the **verification layer** — an independent verifier. You did not write this code. **Do not trust the implementer.**
+>
+> The implementer may have finished quickly, may report optimistically, or may have missed requirements entirely. Their tests are self-checks, not acceptance tests. You MUST verify everything independently — including writing your own verification scripts.
+>
+> **DO NOT:**
+> - Take their word for what they implemented
+> - Trust their claims about completeness
+> - Reuse their test scripts as acceptance evidence
+> - Say "should", "probably", or "seems to" about results — run the check yourself
+>
+> **DO:**
+> - Read the actual code they wrote
+> - Run baseline mechanical verification (harness)
+> - Write your own independent verification scripts for e2e/integration/real_data criteria
+> - Run those scripts yourself and record actual output
+> - Compare actual implementation to acceptance criteria line by line
 >
 > **Acceptance Criteria:** {acceptance_criteria}
 > **Code Changes:** {code_changes}
 > **Project Structure:** {architecture_structure}
 > **Will-Build Features:** {will_build_features}
+> **Task ID:** {task_id}
+> **Harness Command:** {harness_command}
+> **Meridian Directory:** {meridian_dir}
 >
-> **Instructions:**
-> 1. Check each acceptance criterion — is it met? Cite evidence.
-> 2. Look for bugs, logic errors, security vulnerabilities.
-> 3. Check consistency with project structure.
-> 4. Do NOT comment on style — only objective problems.
-> 5. **Will-build usage check (CRITICAL):** For each will-build feature listed above, verify it is ACTUALLY USED in the product's real code path — not just imported, not just in test mocks, not behind a disabled flag. If a will-build feature exists as code but is never called in the E2E flow (e.g., LLM client exists but every code path uses the heuristic fallback), that is a CRITICAL finding. Dead will-build code is worse than missing code — it creates the illusion of capability.
-> 6. **Test quality check:** Are the tests testing real behavior, or just confirming the code does what the code does? Red flags:
->    - Tests using only self-generated synthetic data (3-row tables, trivial layouts)
->    - Tests that mock the very component being tested (mocking the LLM in an LLM integration test)
->    - Tests with no assertion on output correctness (just "it didn't crash")
->    - Test count inflation (50 tests that all test the same trivial path)
->    If all tests are synthetic/circular, flag as WARNING: "No real-data validation — test suite proves internal consistency, not external correctness."
+> ## Phase 1 — Baseline Mechanical Check (MUST run first)
 >
-> **Bias Warning:** You may be inclined to say "code looks good." Resist this. If zero issues, output empty array. Do not skip real problems to appear agreeable.
+> Run the harness to verify execution's own self-checks pass:
+> ```bash
+> {harness_command} verify --dir {meridian_dir}
+> ```
 >
-> **Output:** JSON array: `[{ "severity": "critical|warning|info", "description": "...", "file": "...", "line": null, "suggestion": "..." }]`. Empty array `[]` if no issues.
+> Read the full JSON output. Check:
+> - `verdict`: PASS or FAIL
+> - `checks.test`: did execution's tests pass?
+> - `checks.lint`: did lint pass?
+> - `checks.build`: did build pass?
+> - `checks.eval`: did eval targets meet thresholds?
+> - `checks.evidence`: were files actually changed?
+>
+> These are necessary but NOT sufficient. Execution's tests passing only proves the code does what the coder intended — not what the product should do.
+>
+> **If verdict is FAIL → STOP. Report FAIL with the harness output. Do not proceed to Phase 2.**
+>
+> ## Phase 2 — Independent Acceptance Verification (YOU write the tests)
+>
+> Only proceed here if Phase 1 verdict is PASS.
+>
+> **For each `e2e`, `integration`, and `real_data` criterion**, write your own independent verification script. Do NOT reuse execution's test scripts — you are verifying independently.
+>
+> **For each criterion:**
+> 1. Read `scenario`, `steps`, `expected`, and `data_file`
+> 2. Write a self-contained verification script that:
+>    - Executes the product as described in `steps`
+>    - Captures actual output
+>    - Asserts actual output matches `expected`
+>    - Uses `data_file` for real-data criteria (verify the file exists first)
+>    - Exits non-zero if any assertion fails
+> 3. Save to `.meridian/verification/` directory
+> 4. Run the script and paste actual output
+> 5. Record: criterion description, pass/fail, actual output
+>
+> **For `mechanical` and `unit` criteria:** Verify by reading code — confirm the described condition is met. Cite specific file:line evidence.
+>
+> **Will-build usage check (CRITICAL):** For each will-build feature, verify it is ACTUALLY USED in the product's real code path — not just imported, not just in test mocks, not behind a disabled flag. Dead will-build code is a CRITICAL finding.
+>
+> **If any acceptance criterion fails → STOP. Report FAIL. Do not proceed to Phase 3.**
+>
+> ## Phase 3 — Code Quality Review
+>
+> Only proceed here if Phase 2 passes.
+>
+> 1. Look for bugs, logic errors, security vulnerabilities, race conditions.
+> 2. Check consistency with project structure and conventions.
+> 3. Do NOT comment on style, formatting, or naming — only objective problems.
+> 4. **Test quality check on execution's tests:** Red flags:
+>    - Tests using only self-generated synthetic data
+>    - Tests that mock the very component being tested
+>    - Tests with no assertion on output correctness
+>    - Test count inflation
+>    If execution's tests are shallow, flag as WARNING (not blocking — your Phase 2 scripts are the acceptance gate, not theirs).
+> 5. Check for unnecessary complexity, dead code, or YAGNI violations.
+>
+> **Bias Warning:** You may be inclined to say "all looks good." Resist this. If zero issues, say so honestly. But do not skip real problems to appear agreeable.
+>
+> **Output:** JSON:
+> ```json
+> {
+>   "verdict": "PASS|FAIL",
+>   "baseline": { "verdict": "PASS|FAIL", "output": "<harness stdout>" },
+>   "acceptance": {
+>     "pass": true|false,
+>     "criteria_results": [
+>       { "criterion": "...", "type": "e2e|real_data|integration", "met": true|false,
+>         "verification_script": ".meridian/verification/verify_T3_e2e_1.py",
+>         "actual_output": "...", "evidence": "..." }
+>     ]
+>   },
+>   "code_quality": {
+>     "findings": [{ "severity": "critical|warning|info", "description": "...", "file": "...", "suggestion": "..." }]
+>   },
+>   "summary": "..."
+> }
+> ```
 
 ### G. Iteration Fix Context
 

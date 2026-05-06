@@ -6,6 +6,167 @@ import { join } from "path";
 const STATE_FILE = "state.json";
 const VERSION = "0.1.0";
 
+// Valid task kinds — determines which acceptance criteria rules apply
+const VALID_KINDS = ["scaffolding", "core", "feature", "integration", "refactor", "test", "docs", "infra"];
+// Kinds exempt from e2e/integration/real_data requirements
+const E2E_EXEMPT_KINDS = ["scaffolding", "docs", "infra"];
+// Kinds that require real_data criteria when eval config exists
+const REAL_DATA_REQUIRED_KINDS = ["core"];
+// Valid acceptance criteria types
+const VALID_CRITERIA_TYPES = ["mechanical", "unit", "integration", "e2e", "real_data"];
+
+/**
+ * Validate a single acceptance criterion object.
+ * Returns { valid, errors[] } for the criterion.
+ */
+function validateCriterion(criterion, index) {
+  const errors = [];
+  const prefix = `criteria[${index}]`;
+
+  if (typeof criterion === "string") {
+    // Legacy string format — valid but not structured
+    return { valid: true, legacy: true, errors: [] };
+  }
+
+  if (typeof criterion !== "object" || criterion === null || Array.isArray(criterion)) {
+    errors.push(`${prefix}: must be a string or object`);
+    return { valid: false, legacy: false, errors };
+  }
+
+  // Required fields for all structured criteria
+  if (!criterion.type) {
+    errors.push(`${prefix}: missing required field 'type'`);
+  } else if (!VALID_CRITERIA_TYPES.includes(criterion.type)) {
+    errors.push(`${prefix}: invalid type '${criterion.type}' (valid: ${VALID_CRITERIA_TYPES.join(", ")})`);
+  }
+
+  if (!criterion.description) {
+    errors.push(`${prefix}: missing required field 'description'`);
+  }
+
+  // Type-specific required fields
+  if (criterion.type === "e2e") {
+    if (!criterion.scenario) errors.push(`${prefix}: e2e criterion missing required field 'scenario'`);
+    if (!Array.isArray(criterion.steps) || criterion.steps.length === 0) {
+      errors.push(`${prefix}: e2e criterion missing required field 'steps' (non-empty array)`);
+    }
+    if (!criterion.expected) errors.push(`${prefix}: e2e criterion missing required field 'expected'`);
+  }
+
+  if (criterion.type === "real_data") {
+    if (!criterion.data_source) errors.push(`${prefix}: real_data criterion missing required field 'data_source'`);
+    if (!criterion.expected) errors.push(`${prefix}: real_data criterion missing required field 'expected'`);
+    if (!criterion.data_file && !criterion.fetch_command) {
+      errors.push(`${prefix}: real_data criterion must have 'data_file' or 'fetch_command' for local reproducibility`);
+    }
+  }
+
+  return { valid: errors.length === 0, legacy: false, errors };
+}
+
+/**
+ * Validate acceptance_criteria array for a single task.
+ * Returns { valid, errors[], warnings[], hasLegacy, criteriaByType }.
+ */
+function validateCriteria(criteria) {
+  const errors = [];
+  const warnings = [];
+  let hasLegacy = false;
+  const criteriaByType = {};
+
+  if (!Array.isArray(criteria) || criteria.length === 0) {
+    errors.push("acceptance_criteria must be a non-empty array");
+    return { valid: false, errors, warnings, hasLegacy, criteriaByType };
+  }
+
+  for (let i = 0; i < criteria.length; i++) {
+    const result = validateCriterion(criteria[i], i);
+    if (result.legacy) {
+      hasLegacy = true;
+      warnings.push(`criteria[${i}]: legacy string format '${criteria[i]}' — use structured object format`);
+    }
+    if (!result.valid) {
+      errors.push(...result.errors);
+    }
+    // Track criteria by type for task-level rules
+    if (!result.legacy && result.valid && criteria[i].type) {
+      criteriaByType[criteria[i].type] = (criteriaByType[criteria[i].type] || 0) + 1;
+    }
+  }
+
+  return { valid: errors.length === 0, errors, warnings, hasLegacy, criteriaByType };
+}
+
+/**
+ * Validate a complete plan in strict mode.
+ * Checks task-level rules based on task kind.
+ * @param {object} plan - The plan object with tasks array
+ * @param {string} meridianDir - The .meridian directory (to check eval config)
+ * @returns {{ valid, errors[], warnings[] }}
+ */
+function validatePlanStrictInternal(plan, meridianDir) {
+  const errors = [];
+  const warnings = [];
+
+  if (!Array.isArray(plan.tasks) || plan.tasks.length === 0) {
+    errors.push("Plan must contain a non-empty 'tasks' array");
+    return { valid: false, errors, warnings };
+  }
+
+  // Check if eval config exists
+  const hasEvalConfig = meridianDir ? existsSync(join(meridianDir, "eval_config.json")) : false;
+
+  for (const task of plan.tasks) {
+    const taskPrefix = `task '${task.id || "(unknown)"}'`;
+
+    // Validate kind if present
+    if (task.kind != null && !VALID_KINDS.includes(task.kind)) {
+      errors.push(`${taskPrefix}: invalid kind '${task.kind}' (valid: ${VALID_KINDS.join(", ")})`);
+    }
+
+    // Validate criteria structure
+    const criteriaResult = validateCriteria(task.acceptance_criteria);
+    errors.push(...criteriaResult.errors.map(e => `${taskPrefix}: ${e}`));
+    warnings.push(...criteriaResult.warnings.map(w => `${taskPrefix}: ${w}`));
+
+    if (criteriaResult.hasLegacy) {
+      errors.push(`${taskPrefix}: strict mode requires all criteria to be structured objects (found legacy strings)`);
+    }
+
+    // Task-kind-level rules
+    const kind = task.kind || "feature"; // default to feature if not specified
+    const ct = criteriaResult.criteriaByType;
+
+    if (!E2E_EXEMPT_KINDS.includes(kind)) {
+      const hasE2eOrIntegration = (ct.e2e || 0) + (ct.integration || 0) > 0;
+      if (!hasE2eOrIntegration) {
+        errors.push(`${taskPrefix}: ${kind} task must have at least 1 'e2e' or 'integration' criterion`);
+      }
+    }
+
+    if (REAL_DATA_REQUIRED_KINDS.includes(kind) && hasEvalConfig) {
+      if (!ct.real_data) {
+        errors.push(`${taskPrefix}: ${kind} task must have at least 1 'real_data' criterion (eval config exists)`);
+      }
+    }
+  }
+
+  return { valid: errors.length === 0, errors, warnings };
+}
+
+/**
+ * Validate a plan in lenient mode (for plan-set / plan-adjust).
+ * Accepts legacy strings with warnings, only errors on malformed structure.
+ * @param {Array} criteria - acceptance_criteria array
+ * @returns {{ errors[], warnings[] }}
+ */
+function validateCriteriaLenient(criteria) {
+  const result = validateCriteria(criteria);
+  // In lenient mode, legacy strings are warnings not errors — already handled
+  // Only return structural errors for malformed objects
+  return { errors: result.errors, warnings: result.warnings };
+}
+
 function statePath(dir) {
   return join(dir, STATE_FILE);
 }
@@ -156,6 +317,7 @@ export function runStatus(dir) {
 
 /**
  * Store a task plan from a JSON file.
+ * Lenient mode: accepts legacy string criteria with warnings.
  */
 export function planSet(dir, planPath) {
   const raw = readFileSync(planPath, "utf8");
@@ -166,12 +328,24 @@ export function planSet(dir, planPath) {
   }
 
   const required = ["id", "title", "description", "acceptance_criteria"];
+  const allWarnings = [];
+
   for (const task of plan.tasks) {
     for (const field of required) {
       if (task[field] == null) {
         throw new Error(`Task '${task.id || "(unknown)"}' missing required field '${field}'`);
       }
     }
+    // Validate kind if present
+    if (task.kind != null && !VALID_KINDS.includes(task.kind)) {
+      throw new Error(`Task '${task.id}': invalid kind '${task.kind}' (valid: ${VALID_KINDS.join(", ")})`);
+    }
+    // Lenient criteria validation
+    const { errors, warnings } = validateCriteriaLenient(task.acceptance_criteria);
+    if (errors.length > 0) {
+      throw new Error(`Task '${task.id}': ${errors.join("; ")}`);
+    }
+    allWarnings.push(...warnings.map(w => `task '${task.id}': ${w}`));
   }
 
   const state = readState(dir);
@@ -183,6 +357,7 @@ export function planSet(dir, planPath) {
       title: task.title,
       description: task.description,
       acceptance_criteria: task.acceptance_criteria,
+      kind: task.kind || null,
       status: task.status || "pending",
       dependencies: task.dependencies || [],
       priority: task.priority ?? 0,
@@ -196,7 +371,11 @@ export function planSet(dir, planPath) {
   // Also save the raw plan for reference
   writeFileSync(join(dir, "plan.json"), JSON.stringify(plan, null, 2), "utf8");
 
-  return { stored: true, taskCount: plan.tasks.length };
+  const result = { stored: true, taskCount: plan.tasks.length };
+  if (allWarnings.length > 0) {
+    result.warnings = allWarnings;
+  }
+  return result;
 }
 
 /**
@@ -279,11 +458,13 @@ export function taskReopen(dir, taskId, reason) {
 /**
  * Adjust the plan: add, remove, or update tasks.
  * Layer 3: Plan adjustment — strategic layer modifies the plan mid-execution.
+ * Lenient mode: accepts legacy string criteria with warnings.
  */
 export function planAdjust(dir, adjustments) {
   const state = readState(dir);
   const now = new Date().toISOString();
   const results = [];
+  const allWarnings = [];
 
   for (const adj of adjustments) {
     switch (adj.action) {
@@ -294,11 +475,23 @@ export function planAdjust(dir, adjustments) {
             throw new Error(`New task '${adj.task.id || "(unknown)"}' missing field '${field}'`);
           }
         }
+        // Validate kind if present
+        if (adj.task.kind != null && !VALID_KINDS.includes(adj.task.kind)) {
+          throw new Error(`New task '${adj.task.id}': invalid kind '${adj.task.kind}' (valid: ${VALID_KINDS.join(", ")})`);
+        }
+        // Lenient criteria validation
+        const { errors, warnings } = validateCriteriaLenient(adj.task.acceptance_criteria);
+        if (errors.length > 0) {
+          throw new Error(`New task '${adj.task.id}': ${errors.join("; ")}`);
+        }
+        allWarnings.push(...warnings.map(w => `task '${adj.task.id}': ${w}`));
+
         state.tasks[adj.task.id] = {
           id: adj.task.id,
           title: adj.task.title,
           description: adj.task.description,
           acceptance_criteria: adj.task.acceptance_criteria,
+          kind: adj.task.kind || null,
           status: "pending",
           dependencies: adj.task.dependencies || [],
           priority: adj.task.priority ?? 0,
@@ -336,11 +529,36 @@ export function planAdjust(dir, adjustments) {
           results.push({ action: "update", id: adj.id, error: "not found" });
           break;
         }
+        // Clone → apply → validate → mutate
+        const merged = { ...task };
+        if (adj.fields.title) merged.title = adj.fields.title;
+        if (adj.fields.description) merged.description = adj.fields.description;
+        if (adj.fields.acceptance_criteria) merged.acceptance_criteria = adj.fields.acceptance_criteria;
+        if (adj.fields.dependencies) merged.dependencies = adj.fields.dependencies;
+        if (adj.fields.priority != null) merged.priority = adj.fields.priority;
+        if (adj.fields.kind !== undefined) {
+          if (adj.fields.kind != null && !VALID_KINDS.includes(adj.fields.kind)) {
+            throw new Error(`Task '${adj.id}': invalid kind '${adj.fields.kind}' (valid: ${VALID_KINDS.join(", ")})`);
+          }
+          merged.kind = adj.fields.kind;
+        }
+
+        // Validate criteria if updated
+        if (adj.fields.acceptance_criteria) {
+          const { errors, warnings } = validateCriteriaLenient(merged.acceptance_criteria);
+          if (errors.length > 0) {
+            throw new Error(`Task '${adj.id}': ${errors.join("; ")}`);
+          }
+          allWarnings.push(...warnings.map(w => `task '${adj.id}': ${w}`));
+        }
+
+        // Apply validated changes
         if (adj.fields.title) task.title = adj.fields.title;
         if (adj.fields.description) task.description = adj.fields.description;
         if (adj.fields.acceptance_criteria) task.acceptance_criteria = adj.fields.acceptance_criteria;
         if (adj.fields.dependencies) task.dependencies = adj.fields.dependencies;
         if (adj.fields.priority != null) task.priority = adj.fields.priority;
+        if (adj.fields.kind !== undefined) task.kind = adj.fields.kind;
         task.updated_at = now;
         results.push({ action: "update", id: adj.id });
         break;
@@ -357,7 +575,11 @@ export function planAdjust(dir, adjustments) {
   const plan = { tasks: Object.values(state.tasks) };
   writeFileSync(join(dir, "plan.json"), JSON.stringify(plan, null, 2), "utf8");
 
-  return { adjusted: true, results, totalTasks: Object.keys(state.tasks).length };
+  const result = { adjusted: true, results, totalTasks: Object.keys(state.tasks).length };
+  if (allWarnings.length > 0) {
+    result.warnings = allWarnings;
+  }
+  return result;
 }
 
 /**
@@ -372,7 +594,51 @@ export function taskList(dir) {
       id: task.id,
       title: task.title,
       status: task.status,
+      kind: task.kind || null,
       attempts,
     };
   });
+}
+
+/**
+ * Validate a plan file against acceptance criteria quality rules.
+ * @param {string} planPath - Path to plan JSON file
+ * @param {string} meridianDir - Path to .meridian directory
+ * @param {boolean} strict - If true, enforce structured format and task-level rules
+ * @returns {{ valid, errors[], warnings[] }}
+ */
+export function validatePlan(planPath, meridianDir, strict) {
+  const raw = readFileSync(planPath, "utf8");
+  const plan = JSON.parse(raw);
+
+  if (!Array.isArray(plan.tasks) || plan.tasks.length === 0) {
+    return { valid: false, errors: ["Plan must contain a non-empty 'tasks' array"], warnings: [] };
+  }
+
+  if (strict) {
+    return validatePlanStrictInternal(plan, meridianDir);
+  }
+
+  // Lenient mode: validate structure only, legacy strings produce warnings
+  const errors = [];
+  const warnings = [];
+
+  for (const task of plan.tasks) {
+    const taskPrefix = `task '${task.id || "(unknown)"}'`;
+
+    if (!task.id || !task.title || !task.description || !task.acceptance_criteria) {
+      errors.push(`${taskPrefix}: missing required fields (id, title, description, acceptance_criteria)`);
+      continue;
+    }
+
+    if (task.kind != null && !VALID_KINDS.includes(task.kind)) {
+      errors.push(`${taskPrefix}: invalid kind '${task.kind}' (valid: ${VALID_KINDS.join(", ")})`);
+    }
+
+    const result = validateCriteria(task.acceptance_criteria);
+    errors.push(...result.errors.map(e => `${taskPrefix}: ${e}`));
+    warnings.push(...result.warnings.map(w => `${taskPrefix}: ${w}`));
+  }
+
+  return { valid: errors.length === 0, errors, warnings };
 }

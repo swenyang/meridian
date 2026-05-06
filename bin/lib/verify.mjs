@@ -109,6 +109,8 @@ export function runCheck(projectDir, checkName, command) {
 
 /**
  * Run all detected checks and produce a verdict.
+ * This is the BASELINE check — execution's own tests, lint, build, eval targets.
+ * Per-criterion acceptance verification is done independently by the verification subagent.
  */
 export function verify(projectDir, meridianDir) {
   const detected = detect(projectDir);

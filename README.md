@@ -20,6 +20,8 @@ Meridian is designed around **AI failure modes**, not human roles:
 | Scope gaming (puts core tech in "optional") | Technical analysis binds feature list — chosen approach = will-build |
 | Toy eval data (3-row tests prove nothing) | Eval dataset quality gate — realism, coverage, difficulty, volume checks |
 | Dead features (code exists but never called) | Will-build usage verification — dead code = critical finding |
+| Vague acceptance criteria ("tests pass") | Structured typed criteria with schema validation — e2e scenarios, real-data checks |
+| Execution grades its own homework | Verification layer independently writes and runs its own acceptance tests |
 
 ## Core Principles
 
@@ -27,8 +29,9 @@ Meridian is designed around **AI failure modes**, not human roles:
 2. **Mechanical verdicts override LLM opinions.** Tool output > verification review findings > self-report. Eval metrics below target = FAIL regardless of passing tests.
 3. **Real data, not synthetic data.** Eval against real-world data, not self-generated toy examples.
 4. **Core before chrome.** Core function must work on real data before ANY auxiliary features (CLI, batch, caching, formatters). Block auxiliary tasks until core passes real-data eval.
-5. **Minimize user interruptions.** Only ask for: irreversible decisions, scope confirmation, design confirmation, escalations after all recovery strategies exhausted. Never ask "should I start?" — just start.
+5. **Minimize user interruptions.** Only ask for: irreversible decisions, scope confirmation, design confirmation, verification plan review, escalations after all recovery strategies exhausted.
 6. **Scope changes are user decisions.** Never silently reduce scope. Core technical approach = always will-build, never optional.
+7. **Match the user's language.** All user-facing output in the same language as the user's input. Internal artifacts may remain in English.
 
 ## Architecture
 
@@ -38,25 +41,30 @@ Meridian is designed around **AI failure modes**, not human roles:
                     │  Layer        │ ← Project owner: expand, design,
                     │  (main agent) │   decompose, checkpoint, decide
                     └──┬───────┬───┘
-           task+context│       │code+criteria(trimmed)
+           task+context│       │criteria (the WHAT)
                       ↓       ↓
-               ┌──────┐     ┌──────┐
-               │Execut.│     │Verif.│
-               │      │     │      │ ← Reviews expansion, design, AND code
-               └──┬───┘     └──┬───┘
-                  │ code output │ findings
-                  ↓            ↓
-               ┌─────────────────┐
-               │    Harness       │ ← Mechanical verifier (tests, lint, build)
-               │    (Node.js CLI) │   + Eval metrics check (accuracy targets)
-               │                 │   State, memory, decisions, iterations
-               └────────┬────────┘
-                        │
-                 PASS → next task
-                 FAIL → iterate (escalation ladder)
+               ┌──────┐     ┌──────────────────────┐
+               │Execut.│     │  Verification Layer   │
+               │      │     │                       │
+               │writes │     │  1. $HARNESS verify   │ ← Baseline: execution's
+               │code + │     │     (tests/lint/build) │   tests, lint, build, eval
+               │own    │     │                       │
+               │tests  │     │  2. Writes OWN e2e +  │ ← Independent: verification
+               │(self- │     │     real-data scripts  │   writes its own acceptance
+               │check) │     │     → runs them        │   tests from criteria
+               │       │     │                       │
+               └──┬───┘     │  3. Spec compliance + │ ← Code review: right thing
+                  │          │     code quality review│   built well?
+                  ↓          └────────┬──────────────┘
+               (code to                │ verdict
+                strategic)             ↓
+                               PASS → next task
+                               FAIL → iterate (escalation ladder)
 ```
 
-**Data flow is a triangle. Information is deliberately asymmetric.** Strategic sees everything. Execution sees task + project context. Verification sees only code + criteria — never execution's reasoning.
+**Data flow is deliberately asymmetric.** Strategic sees everything. Execution sees task + project context. Verification sees only code + criteria — never execution's reasoning.
+
+**Verification independence:** The verification layer writes its own acceptance test scripts based on criteria — it does NOT run scripts written by the execution layer. Execution's tests are self-checks (baseline); verification's tests are the acceptance gate.
 
 The verification layer participates in THREE phases:
 1. **Requirement expansion** — reviews product spec for gaps, scope reduction, missing technical depth
@@ -79,7 +87,7 @@ Step 0 — Initialize
 │  └── Empty project → proceed
 │
 ▼
-Step 1 — Requirement Expansion ·················· 👤 User checkpoint 1/2
+Step 1 — Requirement Expansion ·················· 👤 User checkpoint 1/3
 │  1a. Strategic layer expands requirement
 │      Core Technical Challenge analysis first (naive → why fails → better → chosen)
 │      Three non-negotiable rules enforced:
@@ -92,49 +100,65 @@ Step 1 — Requirement Expansion ·················· 👤 User 
 │  1d. Present scope to user + collect required credentials
 │
 ▼
-Step 2 — Design Phase ··························· 👤 User checkpoint 2/2
-│  2a. Generate design artifacts (architecture, data model, API, UI flow...)
-│      Confidence levels: 🟢 proceed / 🟡 review / 🔴 needs input
-│      External dependencies + eval strategy required
-│  2b. Verification reviewer checks design
-│  2c. Present design to user (only 🟡🔴 items need attention)
+Step 2 — Design Phase ··························· 👤 User checkpoint 2/3
+│  2a. Design organized by scope item (1:1 mapping to will-build list)
+│      Each scope item → design approach + interfaces + confidence
+│      Cross-cutting concerns must state which scope items they serve
+│  2b. Verification reviewer checks scope coverage first
+│      Uncovered scope item = critical gap; orphan design = gold-plating
+│  2c. Present design to user (organized by scope, not by tech category)
 │  → Confirmed design stored as binding contract
 │
 ▼
-Step 2.5 — Core Hypothesis Validation
-│  Validate core technical approach on real data BEFORE building infrastructure
+│
+Step 3 — Strategic Decomposition
+│  Confirmed design → structured task list
+│  Each task gets `kind` (scaffolding/core/feature/integration/...)
+│  Structured acceptance criteria (typed: e2e, real_data, unit, ...)
+│  Minimum: ≥3 e2e per core task, ≥3 real-data files per core task
+│  Integration checkpoints every 3-4 tasks
+│  Core-first ordering: core → auxiliary → polish
+│  Final task = end-to-end validation
+│
+Step 3.5 — Eval Framework Design ················· 👤 User checkpoint 3/3
+│  Design product-level eval framework with user:
+│  ├── Eval pipeline: input → run product → compare to ground truth → score
+│  ├── Metrics & targets (e.g., accuracy ≥ 0.90, error_rate ≤ 0.05)
+│  ├── Dataset: ≥30 real files from ≥3 sources, 3 difficulty levels
+│  ├── E2E acceptance scenarios (product-level, not per-task)
+│  └── User adjusts targets, adds sources, strengthens scenarios
+│  This framework is the quality bar — too lenient = broken product passes
+│
+Step 4 — Core Hypothesis Validation
+│  AFTER user approves verification plan
+│  Spike core approach on 3-5 real files
+│  Judge results against user-approved criteria
 │  Catch fundamental flaws when they're cheap to fix
 │
 ▼ ─── Fully autonomous below — user only involved on escalation ───
 │
-Step 3 — Strategic Decomposition
-│  Confirmed design → structured task list
-│  Integration checkpoints every 3-4 tasks
-│  Eval dataset as first-class early task (real data, 50+ files)
-│  Core-first ordering: core → auxiliary → polish
-│  Final task = end-to-end validation
-│  Print plan, start executing immediately (no "ready?" prompt)
-│
-Step 4 — Handle Decisions
+Step 5 — Handle Decisions
 │  Irreversible → block immediately, ask user (multiple-choice)
 │  Reversible → use recommended, batch 3+ then confirm
 │
-Step 5 — Task Execution Loop ←────────────────────┐
+Step 6 — Task Execution Loop ←────────────────────┐
 │  for each task:                                  │
-│    5a. Check dependencies ready                  │
-│    5b. Strategic layer refines task               │
-│    5c. Execution subagent writes code (isolated)  │
-│        └─ Must E2E verify: launch + use feature  │
-│        └─ Will-build features: real call, not stub│
-│    5d. Mechanical verifier:                       │
-│        tests + lint + build + eval targets        │
-│    5e. Verification reviewer (isolated context)   │
-│        └─ Will-build usage check: dead code = FAIL│
-│    5f. Synthesize verdict:                        │
-│        mechanical FAIL → FAIL                    │
-│        + reviewer critical → FAIL                │
+│    6a. Check dependencies ready                  │
+│    6b. Strategic layer refines task               │
+│    6c. Execution subagent writes code (isolated)  │
+│        └─ Writes own tests (self-check, untrusted)│
+│    6d. Verification subagent (isolated context):  │
+│        Phase 1: $HARNESS verify (baseline)        │
+│          execution's tests + lint + build + eval  │
+│        Phase 2: Writes OWN acceptance scripts     │
+│          e2e/real_data/integration — independent  │
+│          runs them, records pass/fail per criterion│
+│        Phase 3: Spec compliance + code quality    │
+│          will-build usage, bugs, YAGNI            │
+│    6e. Strategic reads verdict:                   │
+│        any phase FAIL → overall FAIL              │
 │        all clear → PASS                          │
-│    5g. Handle verdict:                            │
+│    6f. Handle verdict:                            │
 │        PASS → update memory, next task            │
 │        FAIL → escalation ladder:                 │
 │          retry(3x) → rethink → split             │
@@ -142,7 +166,7 @@ Step 5 — Task Execution Loop ←───────────────�
 │        Integration FAIL → diagnose root cause     │
 │          → task-reopen → cascade reverify ────────┘
 │
-Step 6 — Checkpoint (every N tasks)
+Step 7 — Checkpoint (every N tasks)
 │  Strategic layer reviews globally:
 │  ├── Consistency check (interface conflicts?)
 │  ├── Direction check (drifting from goal?)
@@ -154,12 +178,12 @@ Step 6 — Checkpoint (every N tasks)
 │  │     → re-eval → loop until target or plateau
 │  └── Batch decision report if due
 │
-Step 7 — Status Notifications
+Step 8 — Status Notifications
 │  [Meridian] ✅ T1 complete | ⏳ T2 executing | Progress 1/8
 │  [Meridian] ❌ T2 FAIL (attempt 1/3) — retrying
 │  [Meridian] 🔴 T3 blocked — escalating with analysis + options
 │
-Step 8 — Completion
+Step 9 — Completion
    Mark run complete → next /meridian auto-archives, memory preserved
 ```
 
@@ -192,7 +216,7 @@ Each LLM call is a new stateless process. Memory files maintain continuity:
 ```
 .meridian/
 ├── state.json              ← Current run state
-├── plan.json               ← Current task plan
+├── plan.json               ← Current task plan (structured criteria with kind)
 ├── eval_config.json        ← Eval command + accuracy targets (if applicable)
 ├── memory/                 ← Persists across runs
 │   ├── project_brief.md    ← Anchor: goals + tech stack + constraints
@@ -200,6 +224,8 @@ Each LLM call is a new stateless process. Memory files maintain continuity:
 │   ├── architecture.md     ← Current state (updated at checkpoints)
 │   ├── completed_tasks.md  ← What's been built (auto-truncates old entries)
 │   └── active_issues.md    ← Unresolved problems
+├── verification/           ← Verification-layer-written acceptance scripts
+│   └── verify_T3_e2e_1.py  ← Independent E2E test (NOT written by execution)
 ├── tasks/                  ← Current run task records
 │   └── T1/                 ← Per-task: prompts, outputs, verdicts, evidence
 └── runs/                   ← Archived completed runs
@@ -213,18 +239,18 @@ Each LLM call is a new stateless process. Memory files maintain continuity:
 
 ## Harness (Node.js CLI)
 
-The harness does everything that doesn't need an LLM:
+The harness is a mechanical tool — zero LLM, deterministic pass/fail based on exit codes. It handles state management, memory, decisions, iterations, and baseline verification (execution's tests, lint, build, eval targets).
 
 ```bash
 # State & runs
-meridian-harness init | plan-set | run-status | run-complete
+meridian-harness init | plan-set | validate-plan | run-status | run-complete
 meridian-harness task-list | task-status | task-complete
 
 # Iteration
 meridian-harness task-reopen | plan-adjust
 meridian-harness iteration-record | iteration-count
 
-# Verification
+# Verification (baseline — execution's self-checks)
 meridian-harness detect-tools | verify | eval-config
 
 # Memory
@@ -238,7 +264,9 @@ meridian-harness report-due | report-format
 meridian-harness checkpoint-due
 ```
 
-All commands output JSON. Zero runtime dependencies. 49 integration tests.
+All commands output JSON. Zero runtime dependencies. 69 integration tests.
+
+**Note:** The harness runs execution's own tests as a baseline check. Acceptance verification (E2E, real-data) is independently written and run by the verification subagent — not by the harness.
 
 ## Quick Start
 

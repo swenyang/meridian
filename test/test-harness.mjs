@@ -226,6 +226,176 @@ r = run(`run-status --dir ${DIR}`);
 assert("new run is active", r, "status", "active");
 assert("archived runs count", { ok: r.archived_runs > 0 }, "ok", "true");
 
+// --- Structured Acceptance Criteria ---
+console.log("\n--- Structured Acceptance Criteria ---");
+
+// Legacy string criteria still work in plan-set (backward compat)
+const legacyPlan = join(DIR, "test-legacy-plan.json");
+writeFileSync(legacyPlan, JSON.stringify({
+  tasks: [
+    { id: "L1", title: "Legacy task", description: "Uses string criteria",
+      acceptance_criteria: ["tests pass", "file exists"], dependencies: [] }
+  ]
+}));
+r = run(`plan-set --plan ${legacyPlan} --dir ${DIR}`);
+assert("legacy string criteria accepted", r, "stored", "true");
+assert("legacy criteria produce warnings", { ok: r.warnings && r.warnings.length > 0 }, "ok", "true");
+
+// Structured criteria work in plan-set
+const structuredPlan = join(DIR, "test-structured-plan.json");
+writeFileSync(structuredPlan, JSON.stringify({
+  tasks: [
+    { id: "S1", title: "Structured task", description: "Uses structured criteria", kind: "core",
+      acceptance_criteria: [
+        { type: "mechanical", description: "All tests pass", verify_command: "npm test" },
+        { type: "e2e", description: "CLI works end-to-end",
+          scenario: "User runs parse command",
+          steps: ["Run: node cli.js parse input.xlsx"],
+          expected: "JSON output with 3 tables" },
+        { type: "real_data", description: "Handles SEC filing",
+          data_source: "https://sec.gov/example",
+          data_file: "eval/sec-10k.xlsx",
+          expected: "Extracts 12-column table" }
+      ],
+      dependencies: [] }
+  ]
+}));
+r = run(`plan-set --plan ${structuredPlan} --dir ${DIR}`);
+assert("structured criteria accepted", r, "stored", "true");
+assert("structured criteria no warnings", { ok: !r.warnings }, "ok", "true");
+
+// Task kind is stored
+r = run(`task-list --dir ${DIR}`);
+const s1Task = r.find(t => t.id === "S1");
+assert("kind field stored", { kind: s1Task?.kind }, "kind", "core");
+
+// Invalid kind is rejected
+const badKindPlan = join(DIR, "test-bad-kind-plan.json");
+writeFileSync(badKindPlan, JSON.stringify({
+  tasks: [
+    { id: "BK1", title: "Bad kind", description: "d", kind: "banana",
+      acceptance_criteria: ["ok"], dependencies: [] }
+  ]
+}));
+let threw = false;
+try { run(`plan-set --plan ${badKindPlan} --dir ${DIR}`); } catch { threw = true; }
+assert("invalid kind rejected by plan-set", { threw }, "threw", "true");
+
+// Invalid structured criteria rejected (e2e missing required fields)
+const badCriteriaPlan = join(DIR, "test-bad-criteria-plan.json");
+writeFileSync(badCriteriaPlan, JSON.stringify({
+  tasks: [
+    { id: "BC1", title: "Bad criteria", description: "d",
+      acceptance_criteria: [{ type: "e2e", description: "missing scenario" }],
+      dependencies: [] }
+  ]
+}));
+threw = false;
+try { run(`plan-set --plan ${badCriteriaPlan} --dir ${DIR}`); } catch { threw = true; }
+assert("malformed e2e criteria rejected", { threw }, "threw", "true");
+
+// Invalid real_data criteria rejected (missing data_file/fetch_command)
+const badRealDataPlan = join(DIR, "test-bad-realdata-plan.json");
+writeFileSync(badRealDataPlan, JSON.stringify({
+  tasks: [
+    { id: "BR1", title: "Bad real_data", description: "d",
+      acceptance_criteria: [{ type: "real_data", description: "no source", expected: "something" }],
+      dependencies: [] }
+  ]
+}));
+threw = false;
+try { run(`plan-set --plan ${badRealDataPlan} --dir ${DIR}`); } catch { threw = true; }
+assert("malformed real_data criteria rejected", { threw }, "threw", "true");
+
+// plan-adjust with kind and structured criteria
+const adjAddStructured = JSON.stringify([{action:"add",task:{
+  id:"S2",title:"Feature task",description:"d",kind:"feature",
+  acceptance_criteria:[
+    {type:"integration",description:"API integration works",verify_command:"npm run test:integration"}
+  ],
+  dependencies:["S1"]
+}}]);
+r = run(`plan-adjust --adjustments ${quote(adjAddStructured)} --dir ${DIR}`);
+assert("plan-adjust add with structured criteria", r, "adjusted", "true");
+
+// plan-adjust update with kind change
+const adjUpdateKind = JSON.stringify([{action:"update",id:"S2",fields:{kind:"core"}}]);
+r = run(`plan-adjust --adjustments ${quote(adjUpdateKind)} --dir ${DIR}`);
+assert("plan-adjust update kind", r, "adjusted", "true");
+
+// plan-adjust rejects invalid kind on update
+const adjBadKind = JSON.stringify([{action:"update",id:"S2",fields:{kind:"invalid"}}]);
+threw = false;
+try { run(`plan-adjust --adjustments ${quote(adjBadKind)} --dir ${DIR}`); } catch { threw = true; }
+assert("plan-adjust rejects invalid kind update", { threw }, "threw", "true");
+
+// --- Validate Plan Command ---
+console.log("\n--- Validate Plan ---");
+
+// Lenient mode: legacy strings produce warnings but valid=true
+r = run(`validate-plan --plan ${legacyPlan} --dir ${DIR}`);
+assert("validate-plan lenient accepts legacy", r, "valid", "true");
+assert("validate-plan lenient has warnings", { ok: r.warnings && r.warnings.length > 0 }, "ok", "true");
+
+// Lenient mode: structured plan valid with no warnings
+r = run(`validate-plan --plan ${structuredPlan} --dir ${DIR}`);
+assert("validate-plan lenient accepts structured", r, "valid", "true");
+
+// Strict mode: legacy strings rejected
+threw = false;
+try { run(`validate-plan --plan ${legacyPlan} --dir ${DIR} --strict`); } catch { threw = true; }
+assert("validate-plan strict rejects legacy strings", { threw }, "threw", "true");
+
+// Strict mode: structured plan valid
+r = run(`validate-plan --plan ${structuredPlan} --dir ${DIR} --strict`);
+assert("validate-plan strict accepts structured", r, "valid", "true");
+
+// Strict mode: feature task without e2e/integration rejected
+const noE2EPlan = join(DIR, "test-no-e2e-plan.json");
+writeFileSync(noE2EPlan, JSON.stringify({
+  tasks: [
+    { id: "NE1", title: "Feature without e2e", description: "d", kind: "feature",
+      acceptance_criteria: [
+        { type: "mechanical", description: "Tests pass" },
+        { type: "unit", description: "Unit test" }
+      ],
+      dependencies: [] }
+  ]
+}));
+threw = false;
+try { run(`validate-plan --plan ${noE2EPlan} --dir ${DIR} --strict`); } catch { threw = true; }
+assert("strict rejects feature without e2e/integration", { threw }, "threw", "true");
+
+// Strict mode: scaffolding exempt from e2e requirement
+const scaffoldingPlan = join(DIR, "test-scaffolding-plan.json");
+writeFileSync(scaffoldingPlan, JSON.stringify({
+  tasks: [
+    { id: "SC1", title: "Project init", description: "scaffolding", kind: "scaffolding",
+      acceptance_criteria: [
+        { type: "mechanical", description: "Dir exists" }
+      ],
+      dependencies: [] }
+  ]
+}));
+r = run(`validate-plan --plan ${scaffoldingPlan} --dir ${DIR} --strict`);
+assert("strict allows scaffolding without e2e", r, "valid", "true");
+
+// --- Baseline Verification ---
+console.log("\n--- Baseline Verification ---");
+
+// Setup: create an isolated project dir (no package.json) to avoid recursive npm test
+const critProjectDir = join(resolve(__dirname, ".."), `_test-crit-project-${process.pid}`);
+mkdirSync(critProjectDir, { recursive: true });
+const critMeridianDir = join(critProjectDir, ".meridian");
+process.on("exit", () => { try { rmSync(critProjectDir, { recursive: true, force: true }); } catch {} });
+
+run(`init --dir ${critMeridianDir}`);
+
+// verify runs baseline checks (no --task needed — acceptance verification is done by verification subagent)
+r = run(`verify --dir ${critMeridianDir}`);
+assert("baseline verify has no criteria field", { ok: !r.checks.criteria }, "ok", "true");
+assert("baseline verify has evidence check", { ok: r.checks.evidence != null }, "ok", "true");
+
 // --- Summary ---
 console.log(`\n=== Results: ${pass} passed, ${fail} failed ===`);
 process.exit(fail > 0 ? 1 : 0);
