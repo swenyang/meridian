@@ -45,10 +45,11 @@ State Commands:
   plan-set --plan <file> --dir <path>        Store task plan
   validate-plan --plan <file> --dir <path> [--strict]  Validate plan quality
   run-status --dir <path>                    Check current run status
-  run-complete --dir <path>                  Mark current run as completed
+  run-complete --dir <path>                  Mark current run as completed (requires all tasks done + verdicts)
   task-list --dir <path>                     List all tasks
   task-status --task <id> --dir <path>       Query task status
-  task-complete --task <id> --summary <text> --dir <path>  Mark task complete
+  task-submit-verdict --task <id> --verdict <json> --dir <path>  Submit verification verdict (required before task-complete)
+  task-complete --task <id> --summary <text> --dir <path>  Mark task complete (requires PASS verdict)
   task-reopen --task <id> --reason <text> --dir <path>   Reopen task + cascade reverify
   plan-adjust --adjustments <json> --dir <path>          Add/remove/update tasks
 
@@ -140,6 +141,14 @@ switch (command) {
     if (!flags.task) { console.error("Error: --task <id> is required"); process.exit(1); }
     const { taskComplete } = await import("./lib/state.mjs");
     const result = taskComplete(resolveDir(flags.dir), flags.task, flags.summary || "");
+    console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "task-submit-verdict": {
+    if (!flags.task || !flags.verdict) { console.error("Error: --task <id> and --verdict <json> required"); process.exit(1); }
+    const { taskSubmitVerdict } = await import("./lib/state.mjs");
+    const result = taskSubmitVerdict(resolveDir(flags.dir), flags.task, JSON.parse(flags.verdict));
     console.log(JSON.stringify(result));
     break;
   }

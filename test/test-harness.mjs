@@ -79,8 +79,20 @@ assert("task-list returns 2 tasks", { len: r.length }, "len", "2");
 r = run(`task-status --task T1 --dir ${DIR}`);
 assert("task-status returns pending", r, "status", "pending");
 
+// task-complete without verdict should FAIL
+let threw = false;
+try { run(`task-complete --task T1 --summary "Done" --dir ${DIR}`); } catch { threw = true; }
+assert("task-complete blocked without verdict", { threw }, "threw", "true");
+
+// Submit a PASS verdict
+const passVerdict = JSON.stringify({result:"PASS",baseline_harness:{verdict:"PASS"},acceptance_verification:{pass:true,criteria_results:[{criterion:"dir exists",met:true,evidence:"verified"}]}});
+r = run(`task-submit-verdict --task T1 --verdict ${quote(passVerdict)} --dir ${DIR}`);
+assert("task-submit-verdict works", r, "submitted", "true");
+assert("verdict result is PASS", r, "result", "PASS");
+
+// Now task-complete should work
 r = run(`task-complete --task T1 --summary "Done" --dir ${DIR}`);
-assert("task-complete marks done", r, "completed", "true");
+assert("task-complete works after PASS verdict", r, "completed", "true");
 
 r = run(`task-status --task T1 --dir ${DIR}`);
 assert("task-status shows done", r, "status", "done");
@@ -160,6 +172,7 @@ assert("checkpoint-due false (1 task done)", r, "due", "false");
 console.log("\n--- Task Backtracking ---");
 
 // Setup: complete T2 so we can test reopening
+run(`task-submit-verdict --task T2 --verdict ${quote(passVerdict)} --dir ${DIR}`);
 run(`task-complete --task T2 --summary "Built it" --dir ${DIR}`);
 r = run(`task-status --task T2 --dir ${DIR}`);
 assert("T2 is done before reopen", r, "status", "done");
@@ -167,6 +180,7 @@ assert("T2 is done before reopen", r, "status", "done");
 // Add a dependent task T3 that depends on T2 and is done
 const adjAdd = JSON.stringify([{action:"add",task:{id:"T3",title:"Depends on T2",description:"d",acceptance_criteria:["ok"],dependencies:["T2"]}}]);
 run(`plan-adjust --adjustments ${quote(adjAdd)} --dir ${DIR}`);
+run(`task-submit-verdict --task T3 --verdict ${quote(passVerdict)} --dir ${DIR}`);
 run(`task-complete --task T3 --summary "Built on T2" --dir ${DIR}`);
 
 // Reopen T2 — should cascade reverify to T3
@@ -211,6 +225,13 @@ assert("detect-tools finds npm test", r, "test.detected", "true");
 
 // --- Run Lifecycle ---
 console.log("\n--- Run Lifecycle ---");
+
+// Re-complete T2 and T3 (they were reopened/reverified in backtracking tests)
+run(`task-submit-verdict --task T2 --verdict ${quote(passVerdict)} --dir ${DIR}`);
+run(`task-complete --task T2 --summary "Rebuilt" --dir ${DIR}`);
+run(`task-submit-verdict --task T3 --verdict ${quote(passVerdict)} --dir ${DIR}`);
+run(`task-complete --task T3 --summary "Reverified" --dir ${DIR}`);
+
 r = run(`run-complete --dir ${DIR}`);
 assert("run-complete works", r, "completed", "true");
 
@@ -240,6 +261,43 @@ writeFileSync(legacyPlan, JSON.stringify({
 r = run(`plan-set --plan ${legacyPlan} --dir ${DIR}`);
 assert("legacy string criteria accepted", r, "stored", "true");
 assert("legacy criteria produce warnings", { ok: r.warnings && r.warnings.length > 0 }, "ok", "true");
+
+// --- Verdict Enforcement ---
+console.log("\n--- Verdict Enforcement ---");
+
+// Submit FAIL verdict — task-complete should be blocked
+const failVerdict = JSON.stringify({result:"FAIL",baseline_harness:{verdict:"FAIL"},acceptance_verification:{pass:false,criteria_results:[{criterion:"tests pass",met:false,evidence:"test suite failed"}]}});
+r = run(`task-submit-verdict --task L1 --verdict ${quote(failVerdict)} --dir ${DIR}`);
+assert("submit FAIL verdict works", r, "submitted", "true");
+assert("FAIL verdict recorded", r, "result", "FAIL");
+
+threw = false;
+try { run(`task-complete --task L1 --summary "Done" --dir ${DIR}`); } catch { threw = true; }
+assert("task-complete blocked with FAIL verdict", { threw }, "threw", "true");
+
+// Submit incomplete verdict (missing fields) — should be rejected
+const badVerdict = JSON.stringify({result:"PASS"});
+threw = false;
+try { run(`task-submit-verdict --task L1 --verdict ${quote(badVerdict)} --dir ${DIR}`); } catch { threw = true; }
+assert("verdict without evidence rejected", { threw }, "threw", "true");
+
+// Submit verdict with blanket "all met" (empty criteria_results) — should be rejected
+const blanketVerdict = JSON.stringify({result:"PASS",baseline_harness:{verdict:"PASS"},acceptance_verification:{pass:true,criteria_results:[]}});
+threw = false;
+try { run(`task-submit-verdict --task L1 --verdict ${quote(blanketVerdict)} --dir ${DIR}`); } catch { threw = true; }
+assert("blanket verdict with empty criteria rejected", { threw }, "threw", "true");
+
+// Submit PASS verdict with baseline FAIL — should be rejected
+const contradictVerdict = JSON.stringify({result:"PASS",baseline_harness:{verdict:"FAIL"},acceptance_verification:{pass:true,criteria_results:[{criterion:"ok",met:true,evidence:"yes"}]}});
+threw = false;
+try { run(`task-submit-verdict --task L1 --verdict ${quote(contradictVerdict)} --dir ${DIR}`); } catch { threw = true; }
+assert("PASS verdict with baseline FAIL rejected", { threw }, "threw", "true");
+
+// Overwrite with valid PASS verdict — now task-complete should work
+r = run(`task-submit-verdict --task L1 --verdict ${quote(passVerdict)} --dir ${DIR}`);
+assert("overwrite to PASS verdict", r, "result", "PASS");
+r = run(`task-complete --task L1 --summary "Done" --dir ${DIR}`);
+assert("task-complete works after PASS overwrite", r, "completed", "true");
 
 // Structured criteria work in plan-set
 const structuredPlan = join(DIR, "test-structured-plan.json");
@@ -277,7 +335,7 @@ writeFileSync(badKindPlan, JSON.stringify({
       acceptance_criteria: ["ok"], dependencies: [] }
   ]
 }));
-let threw = false;
+threw = false;
 try { run(`plan-set --plan ${badKindPlan} --dir ${DIR}`); } catch { threw = true; }
 assert("invalid kind rejected by plan-set", { threw }, "threw", "true");
 

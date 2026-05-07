@@ -279,9 +279,28 @@ export function init(dir) {
 
 /**
  * Mark the current run as completed.
+ * HARD GATE: Refuses if any task is not done or lacks a verdict.
  */
 export function runComplete(dir) {
   const state = readState(dir);
+
+  // Check all tasks are done with verdicts
+  const tasks = Object.values(state.tasks);
+  const incomplete = tasks.filter(t => t.status !== "done");
+  if (incomplete.length > 0) {
+    throw new Error(
+      `Cannot complete run: ${incomplete.length} task(s) not done: ` +
+      incomplete.map(t => t.id).join(", ")
+    );
+  }
+  const noVerdict = tasks.filter(t => !t.verdict);
+  if (noVerdict.length > 0) {
+    throw new Error(
+      `Cannot complete run: ${noVerdict.length} task(s) have no verification verdict: ` +
+      noVerdict.map(t => t.id).join(", ")
+    );
+  }
+
   state.status = "completed";
   state.completed_at = new Date().toISOString();
   writeState(dir, state);
@@ -405,6 +424,7 @@ export function taskStatus(dir, taskId) {
 
 /**
  * Mark a task as complete.
+ * HARD GATE: Requires a verification verdict of PASS. Cannot be bypassed.
  */
 export function taskComplete(dir, taskId, summary) {
   const state = readState(dir);
@@ -414,6 +434,20 @@ export function taskComplete(dir, taskId, summary) {
     throw new Error(`Task '${taskId}' not found`);
   }
 
+  // HARD GATE: check for verification verdict
+  if (!task.verdict) {
+    throw new Error(
+      `Task '${taskId}' has no verification verdict. ` +
+      `Run verification and submit verdict via task-submit-verdict before completing.`
+    );
+  }
+  if (task.verdict.result !== "PASS") {
+    throw new Error(
+      `Task '${taskId}' has verdict '${task.verdict.result}', not PASS. ` +
+      `Fix issues and re-submit verdict before completing.`
+    );
+  }
+
   task.status = "done";
   task.summary = summary;
   task.updated_at = new Date().toISOString();
@@ -421,6 +455,97 @@ export function taskComplete(dir, taskId, summary) {
   writeState(dir, state);
 
   return { completed: true, id: taskId };
+}
+
+/**
+ * Submit a verification verdict for a task.
+ * This is the ONLY way to unlock task-complete. The verdict records
+ * WHO verified (baseline harness, verification subagent) and WHAT was checked.
+ *
+ * HARD GATES enforced:
+ * 1. baseline_harness must contain a verdict field (PASS/FAIL)
+ * 2. baseline_harness must show evidence of file changes
+ * 3. acceptance_verification must contain per-criterion results (not a single blanket "all met")
+ * 4. For e2e/integration/real_data criteria, each result must include a verification_script path
+ * 5. If baseline_harness.verdict is FAIL, overall result cannot be PASS
+ */
+export function taskSubmitVerdict(dir, taskId, verdict) {
+  const state = readState(dir);
+  const task = state.tasks[taskId];
+
+  if (!task) {
+    throw new Error(`Task '${taskId}' not found`);
+  }
+
+  const result = verdict.result;
+  if (result !== "PASS" && result !== "FAIL") {
+    throw new Error(`Verdict result must be 'PASS' or 'FAIL', got '${result}'`);
+  }
+
+  // Gate 1: baseline_harness must exist and have a verdict
+  if (!verdict.baseline_harness) {
+    throw new Error("Verdict missing 'baseline_harness' field. Run $HARNESS verify first.");
+  }
+  if (!verdict.baseline_harness.verdict) {
+    throw new Error("baseline_harness missing 'verdict' field. Must be actual harness output.");
+  }
+
+  // Gate 2: if baseline harness FAILED, overall cannot be PASS
+  if (verdict.baseline_harness.verdict === "FAIL" && result === "PASS") {
+    throw new Error("Cannot submit PASS verdict when baseline_harness.verdict is FAIL. Fix baseline issues first.");
+  }
+
+  // Gate 3: acceptance_verification must exist with per-criterion results
+  if (!verdict.acceptance_verification) {
+    throw new Error("Verdict missing 'acceptance_verification' field. Verification subagent must independently verify acceptance criteria.");
+  }
+
+  const av = verdict.acceptance_verification;
+  if (!Array.isArray(av.criteria_results) || av.criteria_results.length === 0) {
+    throw new Error(
+      "acceptance_verification.criteria_results must be a non-empty array with per-criterion results. " +
+      "A single blanket 'all met' is not acceptable — each criterion must be verified independently."
+    );
+  }
+
+  // Gate 4: each criterion result must have required fields
+  for (let i = 0; i < av.criteria_results.length; i++) {
+    const cr = av.criteria_results[i];
+    if (!cr.criterion || cr.met == null) {
+      throw new Error(`criteria_results[${i}] missing required fields 'criterion' and 'met'.`);
+    }
+    // For e2e/integration/real_data, require verification_script as proof of independent verification
+    if (cr.type && ["e2e", "integration", "real_data"].includes(cr.type)) {
+      if (!cr.verification_script && !cr.evidence) {
+        throw new Error(
+          `criteria_results[${i}] (type: ${cr.type}): must include 'verification_script' (path to independently-written test) ` +
+          `or 'evidence' (actual output from running the verification). Cannot accept self-reported compliance.`
+        );
+      }
+    }
+  }
+
+  // Gate 5: if any criterion is not met, overall result cannot be PASS
+  const failedCriteria = av.criteria_results.filter(cr => !cr.met);
+  if (failedCriteria.length > 0 && result === "PASS") {
+    throw new Error(
+      `Cannot submit PASS verdict with ${failedCriteria.length} unmet criteria: ` +
+      failedCriteria.map(cr => cr.criterion).join("; ")
+    );
+  }
+
+  task.verdict = {
+    result,
+    baseline_harness: verdict.baseline_harness,
+    acceptance_verification: verdict.acceptance_verification,
+    code_review: verdict.code_review || null,
+    submitted_at: new Date().toISOString(),
+  };
+  task.updated_at = new Date().toISOString();
+
+  writeState(dir, state);
+
+  return { submitted: true, id: taskId, result };
 }
 
 /**

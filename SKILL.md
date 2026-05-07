@@ -16,14 +16,15 @@ You (the main agent reading this skill) ARE the Strategic Layer — the project 
 2. **Mechanical verdicts override LLM opinions.** Tool output > verification review findings > self-report.
 3. **Real data, not synthetic data.** Never evaluate a product against data you generated yourself. Self-generated eval data proves the code does what the code does — circular validation. Use real-world data from public datasets, existing benchmarks, or user-provided samples. If none exist, create realistic synthetic data modeled on actual production examples (not 3-row Alice/Bob tables).
 4. **Core before chrome.** The core product must work on real data before ANY auxiliary features are built. CLI, batch processing, caching, output formatters, progress bars — all worthless if the core function produces garbage. Block auxiliary tasks until the core passes a real-data eval.
-5. **Minimize user interruptions.** You are the project owner — make decisions yourself whenever possible. Only involve the user for:
-   - Irreversible decisions (tech stack, database, core architecture) — present immediately with options
-   - Reversible decisions — batch 3+ before asking, use your recommended option in the meantime
+5. **Minimize user interruptions.** You are the project owner — make decisions yourself whenever possible. There are exactly **3 user checkpoints** in the entire protocol — Steps 1, 2, and 3.5. Everything else is autonomous. Only involve the user for:
+   - The 3 checkpoints: scope confirmation (Step 1), design review (Step 2), eval framework review (Step 3.5)
+   - Irreversible decisions not covered by checkpoints
    - Escalations after ALL recovery strategies are exhausted (retry → rethink → split → skip)
-   - Scope confirmation (once, after requirement expansion)
+
+   **After Step 3.5, execution is FULLY AUTONOMOUS.** Do NOT ask the user to confirm hypothesis validation results, task completion, checkpoint reviews, or any intermediate step. Print status updates for visibility, but never block on user input unless escalating a failure.
 
    If you find yourself about to ask the user something, ask: "Can I make this decision myself and move on?" If yes, do it and log it in decisions_log.
-   **Specifically: do NOT ask "should I start?" or "ready to proceed?" after presenting a plan.** The user confirmed scope and design already. Print the plan for visibility, then start executing immediately.
+   **Specifically: do NOT ask "should I start?", "ready to proceed?", "does this look correct?", or present intermediate results for approval.** Print for visibility, then continue.
 6. **Scope changes are user decisions.** Never silently reduce scope. If something feels too ambitious, present it as a choice — don't cut it.
 7. **Match the user's language.** All user-facing output (status messages, scope confirmations, design reviews, checkpoint reports, escalations) MUST be in the same language the user used in their `/meridian` invocation. If the user writes in Chinese, output in Chinese. If in English, output in English. Internal artifacts (plan JSON, memory files, subagent prompts) may remain in English for consistency.
 
@@ -508,9 +509,11 @@ Reply:
 
 ### Step 4 — Core Hypothesis Validation (MANDATORY)
 
-**Purpose:** After the user confirms the verification plan (Step 3.5), validate that the core technical approach actually works on real data BEFORE building infrastructure. This catches fundamental flaws (wrong API format, broken coordinate systems, prompt failures, unsupported edge cases) when they're cheap to fix.
+**Purpose:** After the user confirms the eval framework (Step 3.5), validate that the core technical approach actually works on real data BEFORE building infrastructure. This catches fundamental flaws (wrong API format, broken coordinate systems, prompt failures, unsupported edge cases) when they're cheap to fix.
 
-**Why this runs AFTER verification plan review:** The hypothesis validation must be judged against user-approved acceptance criteria, not self-defined success metrics. The user may have added criteria or strengthened expectations in Step 3.5. The spike's success/failure is measured against THOSE criteria.
+**This step is AUTONOMOUS — do NOT ask the user for confirmation.** The user already approved the eval framework. Run the spike, evaluate results against user-approved criteria, and proceed or go back. Only escalate to the user if the core fails on easy cases and you need to revise the technical approach.
+
+**Why this runs AFTER eval framework review:** The hypothesis validation must be judged against user-approved acceptance criteria, not self-defined success metrics.
 
 **Protocol:**
 
