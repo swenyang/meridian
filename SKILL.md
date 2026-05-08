@@ -16,17 +16,17 @@ You (the main agent reading this skill) ARE the Strategic Layer — the project 
 2. **Mechanical verdicts override LLM opinions.** Tool output > verification review findings > self-report.
 3. **Real data, not synthetic data.** Never evaluate a product against data you generated yourself. Self-generated eval data proves the code does what the code does — circular validation. Use real-world data from public datasets, existing benchmarks, or user-provided samples. If none exist, create realistic synthetic data modeled on actual production examples (not 3-row Alice/Bob tables).
 4. **Core before chrome.** The core product must work on real data before ANY auxiliary features are built. CLI, batch processing, caching, output formatters, progress bars — all worthless if the core function produces garbage. Block auxiliary tasks until the core passes a real-data eval.
-5. **Minimize user interruptions.** You are the project owner — make decisions yourself whenever possible. There are exactly **3 user checkpoints** in the entire protocol — Steps 1, 2, and 3.5. Everything else is autonomous. Only involve the user for:
-   - The 3 checkpoints: scope confirmation (Step 1), design review (Step 2), eval framework review (Step 3.5)
-   - Irreversible decisions not covered by checkpoints
+5. **Minimize user interruptions.** You are the project owner — make decisions yourself whenever possible. There are exactly **2 user checkpoints** in the entire protocol — Steps 1 and 3.5. Everything else is autonomous. Only involve the user for:
+   - The 2 checkpoints: scope confirmation (Step 1), eval framework review (Step 3.5)
+   - Irreversible decisions (via Step 5's decision mechanism)
    - Escalations after ALL recovery strategies are exhausted (retry → rethink → split → skip)
 
-   **After Step 3.5, execution is FULLY AUTONOMOUS.** Do NOT ask the user to confirm hypothesis validation results, task completion, checkpoint reviews, or any intermediate step. Print status updates for visibility, but never block on user input unless escalating a failure.
+   **After Step 3.5, execution is FULLY AUTONOMOUS.** Do NOT ask the user to confirm hypothesis validation results, task completion, design details, checkpoint reviews, or any intermediate step. Print status updates for visibility, but never block on user input unless escalating a failure.
 
    If you find yourself about to ask the user something, ask: "Can I make this decision myself and move on?" If yes, do it and log it in decisions_log.
    **Specifically: do NOT ask "should I start?", "ready to proceed?", "does this look correct?", or present intermediate results for approval.** Print for visibility, then continue.
 6. **Scope changes are user decisions.** Never silently reduce scope. If something feels too ambitious, present it as a choice — don't cut it.
-7. **Match the user's language.** All user-facing output (status messages, scope confirmations, design reviews, checkpoint reports, escalations) MUST be in the same language the user used in their `/meridian` invocation. If the user writes in Chinese, output in Chinese. If in English, output in English. Internal artifacts (plan JSON, memory files, subagent prompts) may remain in English for consistency.
+7. **Match the user's language.** All user-facing output (status messages, scope confirmations, checkpoint reports, escalations) MUST be in the same language the user used in their `/meridian` invocation. If the user writes in Chinese, output in Chinese. If in English, output in English. Internal artifacts (plan JSON, memory files, subagent prompts) may remain in English for consistency.
 
 ## Harness Setup
 
@@ -49,7 +49,7 @@ $HARNESS init --dir $MERIDIAN_DIR
 
 The harness returns a `mode` field:
 
-- **`mode: "new"`** — First time. Proceed to Step 0a/0b (project detection), then full expansion (Step 1) + design (Step 2).
+- **`mode: "new"`** — First time. Proceed to Step 0a/0b (project detection), then full expansion (Step 1), design (Step 2, internal), and decomposition (Step 3).
 
 - **`mode: "active"`** — A run is already in progress. The user is adding a new requirement to an ongoing project.
   1. Read current memory (`$HARNESS memory-read-all --dir $MERIDIAN_DIR`)
@@ -183,11 +183,13 @@ Reply "add: <feature>" to add something I missed.
 Reply "skip: <feature>" to remove something from will-build.
 ```
 
-After user confirms scope + provides required setup → proceed to Step 2 (Design).
+After user confirms scope + provides required setup → proceed to Step 2 (Design, internal).
 
 ### Step 2 — Design Phase
 
 **Purpose:** For each will-build scope item confirmed in Step 1, produce a concrete design that answers "HOW will we build this?" The design must map 1:1 to the scope — every will-build item gets a design, and every design traces back to a scope item. This prevents the design from drifting into random implementation details that don't serve the confirmed scope.
+
+**This step is INTERNAL — no user checkpoint.** The scope and core technical approach are already confirmed in Step 1. The design is a 1:1 elaboration of confirmed scope items — it does not introduce new scope. If an irreversible architectural decision surfaces during design (e.g., database choice, API protocol) that was NOT covered in Step 1's scope confirmation, handle it via Step 5's decision mechanism (block + ask user as multiple-choice).
 
 #### 2a. Generate Design
 
@@ -196,7 +198,7 @@ Use the Appendix C (Design Prompt) template. The strategic layer produces design
 **Structure:** For EACH will-build item from the confirmed scope:
 1. **What:** The scope item (from Step 1)
 2. **How:** The design approach — architecture, data model, interfaces, contracts
-3. **Confidence:** 🟢 high / 🟡 review recommended / 🔴 needs user input
+3. **Confidence:** 🟢 high / 🟡 review recommended / 🔴 needs user input (→ route to Step 5 decision mechanism)
 
 Cross-cutting concerns (file structure, error handling, config) are listed separately but must explain which scope items they serve.
 
@@ -212,53 +214,14 @@ Spawn a verification reviewer subagent with Appendix D (Design Verification Revi
 
 Iterate until the reviewer is satisfied (same escalation ladder as requirement expansion).
 
-#### 2c. Present Design to User
+#### 2c. Store Design as Binding Contract
 
-Format the design for review — **organized by scope item, not by technical category.** The user should be able to match each design decision to the will-build list from Step 1:
-
-```
-[Meridian] 🏗️ Design Review
-
-Scope Item → Design
-
-1. ✅ Multi-format input (.xlsx, .xls, .csv, .ods)
-   🟢 ReaderFactory pattern — one reader per format, common RawSheet interface
-      Reader interface: read(path) → RawSheet { cells, metadata, merge_ranges }
-
-2. ✅ LLM-powered semantic structure detection
-   🟢 Two-phase pipeline: heuristic candidate → LLM refinement
-      Input: RawSheet → Output: DetectedTable[] with confidence scores
-   🟡 LLM prompt strategy:
-      → [Current] Single-shot with full grid context
-      → [Alt] Two-stage: region detection → header classification
-
-3. ✅ Schema inference + type coercion
-   🟢 Statistical type inference: sample N rows, vote on type per column
-      Types: string, integer, float, date, currency, percentage, boolean
-
-4. ✅ Multi-output formats (JSON, CSV, SQLite, Parquet)
-   🟢 Formatter interface: format(ParseResult) → bytes/file
-      Each format independently testable
-
-...
-
-Cross-cutting:
-  • File structure: src/excel_parser/{readers,detection,schema,output}/
-    → serves: #1 (readers/), #2 (detection/), #3 (schema/), #4 (output/)
-  • Error handling: Result[T, Error] pattern
-    → serves: all — every scope item needs error paths
-  • Config: .env for API keys, TOML for parse options
-    → serves: #2 (LLM keys), user-configurable behavior
-
-🔴 Need your input: [if any]
-
-Reply: Enter for all current, or "2A" / "2B" for specific choices
-```
-
-After user confirms → store ALL design artifacts in memory:
+After verification reviewer is satisfied, store ALL design artifacts in memory:
 ```bash
 $HARNESS memory-update --file architecture --content "<full design document: all artifacts consolidated>" --dir $MERIDIAN_DIR
 ```
+
+**Handle 🔴 items:** If any design item has 🔴 confidence (needs user input), route it through Step 5's decision mechanism — present a multiple-choice question to the user, block the relevant tasks until answered. Do NOT hold up the entire design phase for individual decisions.
 
 This architecture file now becomes the **binding contract** for all execution. Every task must implement against this design, and every verification checks conformance to it.
 
@@ -409,7 +372,7 @@ $HARNESS memory-update --file architecture --content "<initial architecture over
 ```
 The mechanical verifier will run this command and **reject any task completion where metrics fall below targets**. This is NOT optional — if the plan defines accuracy goals, they must be mechanically enforced.
 
-### Step 3.5 — Verification Plan Review 👤
+### Step 3.5 — Verification Plan Review 👤 (User checkpoint 2/2)
 
 **Purpose:** Design an **eval framework** that can independently and fairly score the product end-to-end. This is NOT a per-task test checklist — it's a product-level verification system with concrete metrics, real data, and objective scoring. The user reviews and approves this framework before any code is written.
 
@@ -1261,7 +1224,7 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 
 ### C. Design Prompt
 
-Use this in Step 2a after scope is confirmed.
+Use this in Step 2a after scope is confirmed. The design phase is internal — no user checkpoint.
 
 > You are the project architect. Requirement expanded, scope confirmed. Produce concrete, reviewable design artifacts that map 1:1 to the confirmed scope.
 >
@@ -1292,7 +1255,7 @@ Use this in Step 2a after scope is confirmed.
 
 ### D. Design Verification Review Prompt
 
-Use this in Step 2b. Independent subagent reviews the design.
+Use this in Step 2b. Independent subagent reviews the design internally (no user checkpoint).
 
 > You are an independent reviewer. Someone else produced a design for a software project. Find problems that would cause implementation to fail or produce an unusable product. You did NOT create this design.
 >

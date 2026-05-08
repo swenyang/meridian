@@ -4,6 +4,57 @@
 
 A Copilot CLI skill + Node.js harness that builds software through a **Strategic → Execution → Verification** loop with mechanical quality gates.
 
+## Architecture
+
+One principle: **the agent that writes code never judges it.**
+
+### Three Layers
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    Strategic Layer                      │
+│                     (main agent)                        │
+│                                                         │
+│  Sees: everything — full memory, all results, all code  │
+│  Does: expand, design, decompose, dispatch, decide      │
+└──────────────┬──────────────────────────┬───────────────┘
+               │                          │
+      task + project context       code + criteria only
+       (enough to build)       (never execution's reasoning)
+               │                          │
+               ▼                          ▼
+  ┌──────────────────┐       ┌─────────────────────────┐
+  │    Execution     │ code  │     Verification        │
+  │    (subagent)    │──────►│     (subagent)          │
+  │                  │       │                         │
+  │  Writes code +   │       │  1. Baseline checks     │
+  │  own tests       │       │     (tests/lint/build)  │
+  │  (self-check,    │       │  2. Writes OWN tests    │
+  │   untrusted)     │       │     (e2e + real-data)   │
+  │                  │       │  3. Code quality review │
+  └──────────────────┘       └────────────┬────────────┘
+                                          │
+                                       verdict
+                                          ▼
+                                PASS → next task
+                                FAIL → retry(3x) → rethink
+                                       → split → escalate
+```
+
+**Data flow is deliberately asymmetric.** Strategic sees everything — full project awareness. Execution sees task + brief + architecture — enough to build, nothing more. Verification sees code + criteria only — never execution's reasoning, ensuring independent judgment.
+
+**Verification independence:** The verification layer writes its own acceptance test scripts from criteria — it does NOT run scripts written by the execution layer. Execution's tests are self-checks (baseline); verification's tests are the acceptance gate.
+
+### Verification Across the Lifecycle
+
+Verification isn't only for code — it participates in three project phases:
+
+| Phase | Verification Role |
+|---|---|
+| **Requirement expansion** (Step 1) | Reviews spec for gaps, scope reduction, missing technical depth |
+| **Design** (Step 2, internal) | Reviews architecture for completeness, consistency, implementability |
+| **Task execution** (Step 6) | Independently verifies each task's implementation |
+
 ## What's Different
 
 Most multi-agent frameworks simulate human company org charts: PM Agent, Architect Agent, Frontend Agent, QA Agent... Many roles, same LLM, different system prompts. Token cost multiplied, knowledge unchanged.
@@ -33,44 +84,6 @@ Meridian is designed around **AI failure modes**, not human roles:
 6. **Scope changes are user decisions.** Never silently reduce scope. Core technical approach = always will-build, never optional.
 7. **Match the user's language.** All user-facing output in the same language as the user's input. Internal artifacts may remain in English.
 
-## Architecture
-
-```
-                    ┌──────────────┐
-                    │  Strategic    │
-                    │  Layer        │ ← Project owner: expand, design,
-                    │  (main agent) │   decompose, checkpoint, decide
-                    └──┬───────┬───┘
-           task+context│       │criteria (the WHAT)
-                      ↓       ↓
-               ┌──────┐     ┌──────────────────────┐
-               │Execut.│     │  Verification Layer   │
-               │      │     │                       │
-               │writes │     │  1. $HARNESS verify   │ ← Baseline: execution's
-               │code + │     │     (tests/lint/build) │   tests, lint, build, eval
-               │own    │     │                       │
-               │tests  │     │  2. Writes OWN e2e +  │ ← Independent: verification
-               │(self- │     │     real-data scripts  │   writes its own acceptance
-               │check) │     │     → runs them        │   tests from criteria
-               │       │     │                       │
-               └──┬───┘     │  3. Spec compliance + │ ← Code review: right thing
-                  │          │     code quality review│   built well?
-                  ↓          └────────┬──────────────┘
-               (code to                │ verdict
-                strategic)             ↓
-                               PASS → next task
-                               FAIL → iterate (escalation ladder)
-```
-
-**Data flow is deliberately asymmetric.** Strategic sees everything. Execution sees task + project context. Verification sees only code + criteria — never execution's reasoning.
-
-**Verification independence:** The verification layer writes its own acceptance test scripts based on criteria — it does NOT run scripts written by the execution layer. Execution's tests are self-checks (baseline); verification's tests are the acceptance gate.
-
-The verification layer participates in THREE phases:
-1. **Requirement expansion** — reviews product spec for gaps, scope reduction, missing technical depth
-2. **Design** — reviews architecture for completeness, consistency, implementability
-3. **Code** — reviews implementation for bugs, dead will-build features, acceptance criteria
-
 ## Protocol
 
 ```
@@ -87,7 +100,7 @@ Step 0 — Initialize
 │  └── Empty project → proceed
 │
 ▼
-Step 1 — Requirement Expansion ·················· 👤 User checkpoint 1/3
+Step 1 — Requirement Expansion ·················· 👤 User checkpoint 1/2
 │  1a. Strategic layer expands requirement
 │      Core Technical Challenge analysis first (naive → why fails → better → chosen)
 │      Three non-negotiable rules enforced:
@@ -100,14 +113,14 @@ Step 1 — Requirement Expansion ·················· 👤 User 
 │  1d. Present scope to user + collect required credentials
 │
 ▼
-Step 2 — Design Phase ··························· 👤 User checkpoint 2/3
+Step 2 — Design Phase (internal, no user checkpoint)
 │  2a. Design organized by scope item (1:1 mapping to will-build list)
 │      Each scope item → design approach + interfaces + confidence
 │      Cross-cutting concerns must state which scope items they serve
-│  2b. Verification reviewer checks scope coverage first
+│  2b. Verification reviewer checks scope coverage
 │      Uncovered scope item = critical gap; orphan design = gold-plating
-│  2c. Present design to user (organized by scope, not by tech category)
-│  → Confirmed design stored as binding contract
+│  2c. Store design as binding contract
+│  → Irreversible decisions surfaced here → Step 5 decision mechanism
 │
 ▼
 │
@@ -120,7 +133,7 @@ Step 3 — Strategic Decomposition
 │  Core-first ordering: core → auxiliary → polish
 │  Final task = end-to-end validation
 │
-Step 3.5 — Eval Framework Design ················· 👤 User checkpoint 3/3
+Step 3.5 — Eval Framework Design ················· 👤 User checkpoint 2/2
 │  Design product-level eval framework with user:
 │  ├── Eval pipeline: input → run product → compare to ground truth → score
 │  ├── Metrics & targets (e.g., accuracy ≥ 0.90, error_rate ≤ 0.05)
