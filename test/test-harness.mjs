@@ -299,6 +299,82 @@ assert("overwrite to PASS verdict", r, "result", "PASS");
 r = run(`task-complete --task L1 --summary "Done" --dir ${DIR}`);
 assert("task-complete works after PASS overwrite", r, "completed", "true");
 
+// --- E2E Verdict Evidence Gates ---
+console.log("\n--- E2E Verdict Evidence Gates ---");
+
+// Plan with e2e criteria — verdict must include verification_script + actual_output
+const e2ePlan = join(DIR, "test-e2e-gate-plan.json");
+writeFileSync(e2ePlan, JSON.stringify({
+  tasks: [
+    { id: "EG1", title: "E2E gate test", description: "Task with e2e criterion", kind: "core",
+      acceptance_criteria: [
+        { type: "mechanical", description: "File exists" },
+        { type: "e2e", description: "Works end-to-end",
+          scenario: "Run the tool", steps: ["node run.js"], expected: "Output correct" }
+      ],
+      dependencies: [] }
+  ]
+}));
+run(`plan-set --plan ${e2ePlan} --dir ${DIR}`);
+
+// e2e verdict WITHOUT verification_script — should be REJECTED
+const noScriptVerdict = JSON.stringify({
+  result: "PASS",
+  baseline_harness: { verdict: "PASS" },
+  acceptance_verification: {
+    pass: true,
+    criteria_results: [
+      { criterion: "File exists", met: true, evidence: "yes" },
+      { criterion: "Works end-to-end", type: "e2e", met: true }
+    ]
+  }
+});
+threw = false;
+try { run(`task-submit-verdict --task EG1 --verdict ${quote(noScriptVerdict)} --dir ${DIR}`); } catch { threw = true; }
+assert("e2e verdict without verification_script rejected", { threw }, "threw", "true");
+
+// e2e verdict WITH verification_script but no actual_output — should be REJECTED
+const noOutputVerdict = JSON.stringify({
+  result: "PASS",
+  baseline_harness: { verdict: "PASS" },
+  acceptance_verification: {
+    pass: true,
+    criteria_results: [
+      { criterion: "File exists", met: true, evidence: "yes" },
+      { criterion: "Works end-to-end", type: "e2e", met: true, verification_script: ".meridian/verification/e2e.py" }
+    ]
+  }
+});
+threw = false;
+try { run(`task-submit-verdict --task EG1 --verdict ${quote(noOutputVerdict)} --dir ${DIR}`); } catch { threw = true; }
+assert("e2e verdict without actual_output rejected", { threw }, "threw", "true");
+
+// e2e verdict WITH both — should PASS
+const fullE2eVerdict = JSON.stringify({
+  result: "PASS",
+  baseline_harness: { verdict: "PASS" },
+  acceptance_verification: {
+    pass: true,
+    criteria_results: [
+      { criterion: "File exists", met: true, evidence: "yes" },
+      { criterion: "Works end-to-end", type: "e2e", met: true,
+        verification_script: ".meridian/verification/e2e.py",
+        actual_output: "PASS: output matches expected" }
+    ]
+  }
+});
+r = run(`task-submit-verdict --task EG1 --verdict ${quote(fullE2eVerdict)} --dir ${DIR}`);
+assert("e2e verdict with script+output accepted", r, "submitted", "true");
+
+// baseline all-skipped produces warning
+const allSkipVerdict = JSON.stringify({
+  result: "PASS",
+  baseline_harness: { verdict: "PASS", checks: { test: { skipped: true }, lint: { skipped: true }, build: { skipped: true }, evidence: { pass: true, files_changed: 5 } } },
+  acceptance_verification: { pass: true, criteria_results: [{ criterion: "ok", met: true, evidence: "yes" }] }
+});
+r = run(`task-submit-verdict --task EG1 --verdict ${quote(allSkipVerdict)} --dir ${DIR}`);
+assert("all-skipped baseline produces warning", { ok: r.warnings && r.warnings.length > 0 }, "ok", "true");
+
 // Structured criteria work in plan-set
 const structuredPlan = join(DIR, "test-structured-plan.json");
 writeFileSync(structuredPlan, JSON.stringify({
@@ -453,6 +529,125 @@ run(`init --dir ${critMeridianDir}`);
 r = run(`verify --dir ${critMeridianDir}`);
 assert("baseline verify has no criteria field", { ok: !r.checks.criteria }, "ok", "true");
 assert("baseline verify has evidence check", { ok: r.checks.evidence != null }, "ok", "true");
+
+// --- Task Briefs ---
+console.log("\n--- Task Briefs ---");
+
+// Use isolated dir to avoid interference from earlier plan-set calls
+const briefTestDir = join(resolve(__dirname, ".."), `.test-briefs-${process.pid}`);
+mkdirSync(briefTestDir, { recursive: true });
+const briefMeridianDir = join(briefTestDir, ".meridian");
+process.on("exit", () => { try { rmSync(briefTestDir, { recursive: true, force: true }); } catch {} });
+
+run(`init --dir ${briefMeridianDir}`);
+const briefPlanFile = join(briefTestDir, "plan.json");
+writeFileSync(briefPlanFile, JSON.stringify({
+  tasks: [
+    { id: "T1", title: "Setup", description: "Init project", kind: "scaffolding",
+      acceptance_criteria: [{ type: "mechanical", description: "dir exists" }], dependencies: [] },
+    { id: "T2", title: "Core", description: "Build core", kind: "core",
+      acceptance_criteria: [
+        { type: "unit", description: "tests pass" },
+        { type: "e2e", description: "works e2e", scenario: "run it", steps: ["run"], expected: "output" },
+        { type: "real_data", description: "real data", data_source: "http://x", data_file: "f.txt", expected: "ok" }
+      ], dependencies: ["T1"] },
+  ]
+}));
+run(`plan-set --plan ${briefPlanFile} --dir ${briefMeridianDir}`);
+
+// brief-status with no briefs
+r = run(`brief-status --dir ${briefMeridianDir}`);
+assert("brief-status shows total tasks", { ok: r.total === 2 }, "ok", "true");
+assert("brief-status all_present is false", r, "all_present", "false");
+assert("brief-status missing_brief is 2", r, "missing_brief", "2");
+
+// brief-validate fails when no briefs
+try {
+  r = run(`brief-validate --dir ${briefMeridianDir}`);
+  assert("brief-validate should fail with no briefs", {}, "should", "have thrown");
+} catch (e) {
+  const output = JSON.parse(e.stdout.toString().trim());
+  assert("brief-validate fails with no briefs", output, "valid", "false");
+  assert("brief-validate has errors", { ok: output.errors.length === 2 }, "ok", "true");
+}
+
+// task-list and task-status include has_brief
+r = run(`task-list --dir ${briefMeridianDir}`);
+assert("task-list includes has_brief", { ok: r[0].has_brief != null }, "ok", "true");
+assert("task-list has_brief is false", r[0], "has_brief", "false");
+
+r = run(`task-status --task T1 --dir ${briefMeridianDir}`);
+assert("task-status includes has_brief", { ok: r.has_brief != null }, "ok", "true");
+assert("task-status has_brief is false", r, "has_brief", "false");
+
+// Create a valid brief for T1
+const t1BriefDir = join(briefMeridianDir, "tasks", "T1");
+mkdirSync(t1BriefDir, { recursive: true });
+writeFileSync(join(t1BriefDir, "brief.md"), `# Task Brief: T1
+
+## Objective
+Test task
+
+## Scope Items
+- Item A
+
+## Design Specification
+
+### Module Architecture
+Simple module
+
+### Key Interfaces
+\`init() → void\`
+
+### Data Flow
+N/A — scaffolding task
+
+### Integration Contracts
+No upstream dependencies
+
+## File Plan
+- Create: \`src/index.js\`
+
+## Implementation Guidance
+
+### Approach
+Standard scaffolding
+
+### Key Decisions
+Use ES modules
+
+### Edge Cases
+N/A — scaffolding task
+
+### Anti-Patterns to Avoid
+Don't hardcode paths
+
+## Acceptance Criteria
+- File exists
+`, "utf8");
+
+// task-status now shows has_brief true
+r = run(`task-status --task T1 --dir ${briefMeridianDir}`);
+assert("task-status has_brief after create", r, "has_brief", "true");
+
+// brief-status shows 1 with brief
+r = run(`brief-status --dir ${briefMeridianDir}`);
+assert("brief-status with_brief is 1", r, "with_brief", "1");
+assert("brief-status with_valid_brief is 1", r, "with_valid_brief", "1");
+
+// Create an incomplete brief for T2 (missing sections)
+const t2BriefDir = join(briefMeridianDir, "tasks", "T2");
+mkdirSync(t2BriefDir, { recursive: true });
+writeFileSync(join(t2BriefDir, "brief.md"), `# Task Brief: T2
+
+## Objective
+Incomplete brief — missing other sections
+`, "utf8");
+
+r = run(`brief-status --dir ${briefMeridianDir}`);
+const t2Status = r.tasks.find(t => t.id === "T2");
+assert("incomplete brief detected", t2Status, "brief_valid", "false");
+assert("missing sections listed", { ok: t2Status.missing_sections.length > 0 }, "ok", "true");
 
 // --- Summary ---
 console.log(`\n=== Results: ${pass} passed, ${fail} failed ===`);

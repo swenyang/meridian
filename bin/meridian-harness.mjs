@@ -46,12 +46,16 @@ State Commands:
   validate-plan --plan <file> --dir <path> [--strict]  Validate plan quality
   run-status --dir <path>                    Check current run status
   run-complete --dir <path>                  Mark current run as completed (requires all tasks done + verdicts)
-  task-list --dir <path>                     List all tasks
-  task-status --task <id> --dir <path>       Query task status
+  task-list --dir <path>                     List all tasks (includes has_brief field)
+  task-status --task <id> --dir <path>       Query task status (includes has_brief field)
   task-submit-verdict --task <id> --verdict <json> --dir <path>  Submit verification verdict (required before task-complete)
   task-complete --task <id> --summary <text> --dir <path>  Mark task complete (requires PASS verdict)
   task-reopen --task <id> --reason <text> --dir <path>   Reopen task + cascade reverify
   plan-adjust --adjustments <json> --dir <path>          Add/remove/update tasks
+
+Task Briefs:
+  brief-status --dir <path>                  Check which tasks have briefs (per-task + summary)
+  brief-validate --dir <path>                Validate all tasks have complete briefs (gate for execution)
 
 Verification:
   detect-tools --dir <path>                  Detect available verification tools
@@ -173,6 +177,21 @@ switch (command) {
     const { planAdjust } = await import("./lib/state.mjs");
     const result = planAdjust(resolveDir(flags.dir), JSON.parse(flags.adjustments));
     console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "brief-status": {
+    const { briefStatus } = await import("./lib/state.mjs");
+    const result = briefStatus(resolveDir(flags.dir));
+    console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "brief-validate": {
+    const { briefValidate } = await import("./lib/state.mjs");
+    const result = briefValidate(resolveDir(flags.dir));
+    console.log(JSON.stringify(result));
+    if (!result.valid) process.exit(1);
     break;
   }
 

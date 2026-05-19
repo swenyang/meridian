@@ -51,7 +51,7 @@ Verification isn't only for code — it participates in three project phases:
 
 | Phase | Verification Role |
 |---|---|
-| **Requirement expansion** (Step 1) | Reviews spec for gaps, scope reduction, missing technical depth |
+| **Requirement expansion** (Step 1) | Reviews spec for gaps, scope reduction, clarification fidelity, missing technical depth |
 | **Design** (Step 2, internal) | Reviews architecture for completeness, consistency, implementability |
 | **Task execution** (Step 6) | Independently verifies each task's implementation |
 
@@ -101,16 +101,24 @@ Step 0 — Initialize
 │
 ▼
 Step 1 — Requirement Expansion ·················· 👤 User checkpoint 1/2
-│  1a. Strategic layer expands requirement
-│      Core Technical Challenge analysis first (naive → why fails → better → chosen)
-│      Three non-negotiable rules enforced:
-│        - Chosen technical approach = will-build (not optional)
-│        - External deps (API keys) collected upfront
-│        - No "deferred to v1.1" dumping ground
-│  1b. Verification reviewer checks expansion
-│      Technical depth, scope reduction, eval strategy, E2E definition
-│  1c. Iterate until reviewer satisfied (escalation ladder if stuck)
-│  1d. Present scope to user + collect required credentials
+│  Phase A: Requirement Clarification (interactive dialogue)
+│    A1. Scope assessment — complexity check, decomposition if needed
+│    A2. Intent exploration — 3-7 targeted questions (one at a time, prefer multiple choice)
+│        Goal, success criteria, constraints, target users, scope boundaries
+│    A3. Approach exploration — propose 2-3 approaches with trade-offs
+│    A4. Clarification summary — confirm understanding before expanding
+│  Phase B: Autonomous Expansion
+│    B1. Strategic layer expands requirement (grounded in clarification context)
+│        Core Technical Challenge analysis first (naive → why fails → better → chosen)
+│        Three non-negotiable rules enforced:
+│          - Chosen technical approach = will-build (not optional)
+│          - External deps (API keys) collected upfront
+│          - No "deferred to v1.1" dumping ground
+│    B2. Verification reviewer checks expansion
+│        Clarification fidelity, technical depth, scope reduction, eval strategy
+│    B3. Iterate until reviewer satisfied (escalation ladder if stuck)
+│    B4. Scope contradiction check (before presenting to user)
+│    B5. Present scope to user + collect required credentials
 │
 ▼
 Step 2 — Design Phase (internal, no user checkpoint)
@@ -126,12 +134,19 @@ Step 2 — Design Phase (internal, no user checkpoint)
 │
 Step 3 — Strategic Decomposition
 │  Confirmed design → structured task list
-│  Each task gets `kind` (scaffolding/core/feature/integration/...)
+│  Each task gets `kind` + `scope_items` (maps to will-build list)
 │  Structured acceptance criteria (typed: e2e, real_data, unit, ...)
 │  Minimum: ≥3 e2e per core task, ≥3 real-data files per core task
 │  Integration checkpoints every 3-4 tasks
 │  Core-first ordering: core → auxiliary → polish
 │  Final task = end-to-end validation
+│
+Step 3.1 — Generate Task Briefs
+│  For EVERY task: generate structured delivery doc
+│  Objective, scope items, module architecture, key interfaces,
+│  data flow, integration contracts, file plan, implementation guidance
+│  Saved to .meridian/tasks/T{n}/brief.md
+│  Briefs refined in Step 6b with actual completed task context
 │
 Step 3.5 — Eval Framework Design ················· 👤 User checkpoint 2/2
 │  Design product-level eval framework with user:
@@ -157,8 +172,11 @@ Step 5 — Handle Decisions
 Step 6 — Task Execution Loop ←────────────────────┐
 │  for each task:                                  │
 │    6a. Check dependencies ready                  │
-│    6b. Strategic layer refines task               │
+│    6b. Generate Task Brief (structured delivery  │
+│        doc: objective, design spec, interfaces,  │
+│        file plan, implementation guidance)        │
 │    6c. Execution subagent writes code (isolated)  │
+│        receives: architecture + task_brief        │
 │        └─ Writes own tests (self-check, untrusted)│
 │    6d. Verification subagent (isolated context):  │
 │        Phase 1: $HARNESS verify (baseline)        │
@@ -241,7 +259,7 @@ Each LLM call is a new stateless process. Memory files maintain continuity:
 │   └── verify_T3_e2e_1.py  ← Independent E2E test (NOT written by execution)
 ├── tasks/                  ← Current run task records
 │   └── T1/                 ← Per-task: prompts, outputs, verdicts, evidence
-└── runs/                   ← Archived completed runs
+└── runs_archive/           ← Archived completed runs
     └── run-20260428-.../   ← State + plan + tasks snapshot
 ```
 
@@ -258,6 +276,9 @@ The harness is a mechanical tool — zero LLM, deterministic pass/fail based on 
 # State & runs
 meridian-harness init | plan-set | validate-plan | run-status | run-complete
 meridian-harness task-list | task-status | task-complete
+
+# Task Briefs
+meridian-harness brief-status | brief-validate
 
 # Iteration
 meridian-harness task-reopen | plan-adjust
@@ -277,7 +298,7 @@ meridian-harness report-due | report-format
 meridian-harness checkpoint-due
 ```
 
-All commands output JSON. Zero runtime dependencies. 69 integration tests.
+All commands output JSON. Zero runtime dependencies. 94 integration tests.
 
 **Note:** The harness runs execution's own tests as a baseline check. Acceptance verification (E2E, real-data) is independently written and run by the verification subagent — not by the harness.
 

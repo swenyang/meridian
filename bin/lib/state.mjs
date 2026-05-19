@@ -219,7 +219,7 @@ function newStateObject() {
  */
 export function init(dir) {
   mkdirSync(dir, { recursive: true });
-  mkdirSync(join(dir, "runs"), { recursive: true });
+  mkdirSync(join(dir, "runs_archive"), { recursive: true });
   mkdirSync(join(dir, "tasks"), { recursive: true });
   ensureMemoryFiles(dir);
 
@@ -239,7 +239,7 @@ export function init(dir) {
   }
 
   // Completed run — archive and start fresh
-  const archiveDir = join(dir, "runs", state.run_id || `run-archived-${Date.now()}`);
+  const archiveDir = join(dir, "runs_archive", state.run_id || `run-archived-${Date.now()}`);
   mkdirSync(archiveDir, { recursive: true });
 
   // Copy state, plan, tasks, eval_config to archive then clean up
@@ -320,7 +320,7 @@ export function runStatus(dir) {
   const pendingCount = Object.values(state.tasks).filter(t => t.status === "pending").length;
 
   // List archived runs
-  const runsDir = join(dir, "runs");
+  const runsDir = join(dir, "runs_archive");
   const archivedRuns = existsSync(runsDir)
     ? readdirSync(runsDir).filter(f => f.startsWith("run-"))
     : [];
@@ -417,6 +417,7 @@ export function taskStatus(dir, taskId) {
     id: task.id,
     title: task.title,
     status: task.status,
+    has_brief: hasBrief(dir, task.id),
     attempts,
     lastVerdict: lastIter?.verdict ?? null,
   };
@@ -509,23 +510,58 @@ export function taskSubmitVerdict(dir, taskId, verdict) {
   }
 
   // Gate 4: each criterion result must have required fields
+  const warnings = [];
   for (let i = 0; i < av.criteria_results.length; i++) {
     const cr = av.criteria_results[i];
     if (!cr.criterion || cr.met == null) {
       throw new Error(`criteria_results[${i}] missing required fields 'criterion' and 'met'.`);
     }
-    // For e2e/integration/real_data, require verification_script as proof of independent verification
-    if (cr.type && ["e2e", "integration", "real_data"].includes(cr.type)) {
-      if (!cr.verification_script && !cr.evidence) {
+
+    // Determine the criterion type: use cr.type if present, otherwise match against task's acceptance_criteria
+    let criterionType = cr.type || null;
+    if (!criterionType && Array.isArray(task.acceptance_criteria)) {
+      const match = task.acceptance_criteria.find(ac =>
+        typeof ac === "object" && ac.type && ac.description &&
+        cr.criterion.toLowerCase().includes(ac.description.toLowerCase().slice(0, 30))
+      );
+      if (match) criterionType = match.type;
+    }
+
+    // For e2e/integration/real_data, require verification_script AND actual_output as proof
+    if (criterionType && ["e2e", "integration", "real_data"].includes(criterionType)) {
+      if (!cr.verification_script) {
         throw new Error(
-          `criteria_results[${i}] (type: ${cr.type}): must include 'verification_script' (path to independently-written test) ` +
-          `or 'evidence' (actual output from running the verification). Cannot accept self-reported compliance.`
+          `criteria_results[${i}] (type: ${criterionType}, "${cr.criterion}"): ` +
+          `missing 'verification_script' — verification layer must write and run an independent test script. ` +
+          `Self-reported "met: true" without a script is not acceptable.`
+        );
+      }
+      if (!cr.actual_output) {
+        throw new Error(
+          `criteria_results[${i}] (type: ${criterionType}, "${cr.criterion}"): ` +
+          `missing 'actual_output' — must include the actual output from running the verification script. ` +
+          `Evidence of execution is required, not just a pass/fail claim.`
         );
       }
     }
   }
 
-  // Gate 5: if any criterion is not met, overall result cannot be PASS
+  // Gate 5: warn if baseline is all-skipped (tests, lint, build all skipped)
+  if (verdict.baseline_harness.checks) {
+    const checks = verdict.baseline_harness.checks;
+    const allSkipped = ["test", "lint", "build"].every(k =>
+      !checks[k] || checks[k].skipped === true
+    );
+    if (allSkipped) {
+      warnings.push(
+        "baseline_harness: test, lint, and build were ALL skipped. " +
+        "This means no mechanical verification of code quality was performed. " +
+        "Ensure this is expected (e.g., no test framework configured)."
+      );
+    }
+  }
+
+  // Gate 6: if any criterion is not met, overall result cannot be PASS
   const failedCriteria = av.criteria_results.filter(cr => !cr.met);
   if (failedCriteria.length > 0 && result === "PASS") {
     throw new Error(
@@ -545,7 +581,10 @@ export function taskSubmitVerdict(dir, taskId, verdict) {
 
   writeState(dir, state);
 
-  return { submitted: true, id: taskId, result };
+  const returnVal = { submitted: true, id: taskId, result };
+  if (warnings.length > 0) returnVal.warnings = warnings;
+
+  return returnVal;
 }
 
 /**
@@ -720,6 +759,7 @@ export function taskList(dir) {
       title: task.title,
       status: task.status,
       kind: task.kind || null,
+      has_brief: hasBrief(dir, task.id),
       attempts,
     };
   });
@@ -766,4 +806,118 @@ export function validatePlan(planPath, meridianDir, strict) {
   }
 
   return { valid: errors.length === 0, errors, warnings };
+}
+
+// Required sections in a Task Brief (must appear as ## headings)
+const BRIEF_REQUIRED_SECTIONS = [
+  "Objective",
+  "Scope Items",
+  "Design Specification",
+  "File Plan",
+  "Implementation Guidance",
+  "Acceptance Criteria",
+];
+
+/**
+ * Check brief file path for a task.
+ */
+function briefPath(dir, taskId) {
+  return join(dir, "tasks", taskId, "brief.md");
+}
+
+/**
+ * Check if a brief file exists for a task.
+ */
+function hasBrief(dir, taskId) {
+  return existsSync(briefPath(dir, taskId));
+}
+
+/**
+ * Validate a single brief file for required sections.
+ * Returns { valid, missing[] }
+ */
+function validateBriefContent(content) {
+  const missing = [];
+
+  for (const section of BRIEF_REQUIRED_SECTIONS) {
+    const escaped = section.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const pattern = new RegExp(`^#{2,3}\\s+${escaped}`, "m");
+    if (!pattern.test(content)) {
+      missing.push(section);
+    }
+  }
+
+  return { valid: missing.length === 0, missing };
+}
+
+/**
+ * Get brief status for all tasks.
+ * Returns per-task brief existence and overall coverage.
+ */
+export function briefStatus(dir) {
+  const state = readState(dir);
+  const tasks = Object.values(state.tasks);
+
+  const results = tasks.map(task => {
+    const exists = hasBrief(dir, task.id);
+    let valid = false;
+    let missing = [];
+
+    if (exists) {
+      const content = readFileSync(briefPath(dir, task.id), "utf8");
+      const validation = validateBriefContent(content);
+      valid = validation.valid;
+      missing = validation.missing;
+    }
+
+    return {
+      id: task.id,
+      title: task.title,
+      kind: task.kind || null,
+      has_brief: exists,
+      brief_valid: exists ? valid : false,
+      missing_sections: missing,
+    };
+  });
+
+  const withBrief = results.filter(r => r.has_brief).length;
+  const withValidBrief = results.filter(r => r.brief_valid).length;
+  const total = results.length;
+
+  return {
+    total,
+    with_brief: withBrief,
+    with_valid_brief: withValidBrief,
+    missing_brief: total - withBrief,
+    all_present: withBrief === total,
+    all_valid: withValidBrief === total,
+    tasks: results,
+  };
+}
+
+/**
+ * Validate that all tasks have valid briefs. Returns error if not.
+ * Use as a gate before starting execution.
+ */
+export function briefValidate(dir) {
+  const status = briefStatus(dir);
+
+  if (status.all_valid) {
+    return { valid: true, message: `All ${status.total} tasks have valid briefs.` };
+  }
+
+  const errors = [];
+  for (const task of status.tasks) {
+    if (!task.has_brief) {
+      errors.push(`${task.id} (${task.title}): no brief file at tasks/${task.id}/brief.md`);
+    } else if (!task.brief_valid) {
+      errors.push(`${task.id} (${task.title}): brief missing sections: ${task.missing_sections.join(", ")}`);
+    }
+  }
+
+  return {
+    valid: false,
+    message: `${status.missing_brief} tasks missing briefs, ${status.with_brief - status.with_valid_brief} tasks with incomplete briefs.`,
+    errors,
+  };
 }

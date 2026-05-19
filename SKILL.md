@@ -101,7 +101,141 @@ No codebase to scan — proceed directly to Step 1.
 
 Before decomposing into tasks, expand the user's brief requirement into a comprehensive product specification. A brief like "build a Tetris game" should produce a spec covering scoring, levels, preview, controls, persistence, polish — not just "falling blocks + line clearing."
 
-#### 1a. Expand
+Step 1 has two phases: **Phase A** (Requirement Clarification — interactive dialogue with user) and **Phase B** (Autonomous Expansion — agent-driven expansion + verification review). Phase A ensures the agent understands the user's intent correctly BEFORE investing tokens on a full expansion. Phase B then leverages that understanding to produce a comprehensive spec.
+
+#### Phase A — Requirement Clarification (interactive)
+
+**Purpose:** Understand the user's actual intent, constraints, and success criteria through targeted dialogue BEFORE attempting a full expansion. This prevents the agent from expanding in the wrong direction and wasting the user's time on a "fait accompli" that misses the mark.
+
+**Anti-pattern this prevents:** Agent expands "build a task manager" into a full-featured Jira clone when the user wanted a simple CLI todo list. Without clarification, the agent guesses at scope, tech stack, and complexity — and the user faces a wall of text to correct at the end.
+
+##### A1. Scope Assessment
+
+Before asking any questions, quickly assess the requirement:
+
+1. **Complexity check:** Is this a single focused product, or does it describe multiple independent subsystems? If the requirement mentions 3+ loosely related capabilities (e.g., "build a platform with chat, file storage, billing, and analytics"), flag this immediately — it may need decomposition before detailed clarification.
+2. **Ambiguity check:** What are the biggest unknowns? What could the user mean by key terms? (e.g., "parser" could mean CLI tool, library, web service, or all three)
+3. **Existing project check:** If Step 0 detected an existing codebase, factor that context into your questions — don't ask about tech stack if it's already determined.
+
+If the project needs decomposition, help the user break it into sub-projects first. Each sub-project goes through its own clarification → expansion → design → execution cycle.
+
+##### A2. Intent Exploration
+
+Ask targeted clarifying questions to understand the user's real intent. **Rules:**
+
+- **One question per message.** Do not bundle multiple questions. Each question gets its own turn.
+- **Prefer multiple choice.** When possible, present 3-5 concrete options rather than open-ended questions. This reduces cognitive load and speeds up the dialogue.
+- **3-7 questions total.** Aim for 3-5 questions for simple projects, up to 7 for complex ones. Don't interrogate the user — if you have enough to proceed, stop asking.
+- **Early exit:** If the user's initial requirement is already specific enough (includes tech stack, constraints, clear scope), skip to A3 or even directly to Phase B. Not every project needs 7 questions.
+- **Match the user's language.** Ask questions in the same language the user used.
+
+**What to ask about (pick the most relevant, not all):**
+
+| Question Category | When to Ask | Example |
+|---|---|---|
+| **Core goal / "why"** | Always — understanding purpose prevents wrong direction | "What problem does this solve? Who will use it?" |
+| **Success criteria** | Always — defines "done" | "How will you judge if this works well?" |
+| **Hard constraints** | When tech stack / dependencies are unclear | "Any requirements on language, framework, or hosting?" |
+| **Target users** | When the audience affects design decisions | "Is this for developers (CLI), end users (GUI), or both?" |
+| **Scope boundaries** | When the requirement could be interpreted broadly | "Should this handle X, or is that out of scope?" |
+| **Existing solutions** | When there's a clear reference point | "Is there an existing tool you're trying to replace or improve upon?" |
+| **Priority / MVP** | When scope is large | "If you could only ship one thing, what would it be?" |
+
+**CRITICAL: Converge vague goals to quantifiable targets.** If the user's requirement contains subjective or unmeasurable language ("best", "great", "amazing", "professional-quality", "surpass X"), you MUST ask questions that convert these into concrete, verifiable criteria. Without quantifiable targets, the agent has no way to judge whether the product is good enough — and the expansion will produce vague acceptance criteria that pass anything.
+
+Examples of vague → quantifiable conversion:
+
+| Vague Goal | Clarifying Question | Quantifiable Target |
+|---|---|---|
+| "做一个最好的街机过关游戏" | "What makes a beat-em-up game 'the best' for you? → [A] Tight combat feel (frame-perfect hitboxes, combo system) → [B] Content depth (many levels, enemies, unlockables) → [C] Visual polish (smooth animations, particle effects) → [D] All of the above — pick top priority" | "Combat: ≥5 combo chains, ≤3 frame input lag; Content: ≥10 levels, ≥15 enemy types; Visual: 60fps, sprite animations ≥8 frames per action" |
+| "build the best parser" | "Best in what dimension? → [A] Accuracy (handles messy files) → [B] Speed (processes 1000+ files/min) → [C] Format coverage (every spreadsheet format)" | "Accuracy ≥ 0.92 on real-world files, handles merged cells and multi-header tables" |
+| "make it professional quality" | "What does professional quality mean here? → [A] Production-ready (error handling, logging, monitoring) → [B] Enterprise-grade (auth, RBAC, audit trail) → [C] Polished UX (animations, responsive, accessible)" | Specific checklist of production requirements |
+
+**Rule:** By the end of Phase A, every subjective goal in the original requirement MUST have been converted to at least one measurable criterion. If the user can't quantify their goal, help them by proposing concrete benchmarks and asking if they feel right. "I don't know what 'best' means" is a valid user answer — respond with "Here's what 'best' typically means in this domain: [concrete options]."
+
+**Example dialogue:**
+
+```
+[Meridian] 🔍 Before I expand this into a full spec, a few questions:
+
+Q1: What's the primary use case for this Excel parser?
+  → [A] One-off data extraction (parse a file, get structured output)
+  → [B] Pipeline component (integrate into a larger data processing system)
+  → [C] Interactive exploration (browse/query spreadsheet contents)
+  → [D] Something else (please describe)
+
+User: A
+
+Q2: What kind of Excel files will this handle?
+  → [A] Clean, well-structured tables (business reports, simple data)
+  → [B] Messy real-world files (merged cells, inconsistent headers, mixed formats)
+  → [C] Both — must handle messy files but most will be clean
+  → [D] I'm not sure yet
+
+User: C
+
+Q3: How do you plan to use the output?
+  → [A] JSON (for programmatic consumption)
+  → [B] CSV (for spreadsheet/database import)  
+  → [C] Multiple formats (JSON + CSV + others)
+  → [D] I mainly care about accuracy, format is flexible
+
+User: D
+```
+
+##### A3. Approach Exploration
+
+Based on the clarification answers, propose **2-3 technical approaches** with trade-offs:
+
+```
+[Meridian] Based on your answers, here are the main approaches:
+
+Approach A: Rule-based parsing (recommended for clean files)
+  ✅ Fast, no external dependencies, deterministic
+  ❌ Breaks on messy/ambiguous layouts
+
+Approach B: LLM-powered semantic parsing (recommended for messy files)
+  ✅ Handles ambiguity, merged cells, inconsistent headers
+  ❌ Requires API key, slower, costs per call
+
+Approach C: Hybrid (rules + LLM fallback)
+  ✅ Best of both — fast for clean files, accurate for messy ones
+  ❌ More complex architecture, still needs API key for hard cases
+
+My recommendation: [C] Hybrid — given that you said most files are clean but must handle messy ones too.
+
+Which approach? (or suggest a different one)
+```
+
+The user's choice here becomes a **binding constraint** for the expansion — the agent cannot override it later.
+
+**Skip condition:** If the requirement already specifies a clear technical approach (e.g., "build an LLM-powered parser"), skip A3. Don't ask the user to re-confirm what they already stated.
+
+##### A4. Clarification Summary
+
+Before proceeding to Phase B, summarize what you've learned:
+
+```
+[Meridian] 📋 Here's what I understand:
+
+Goal: One-off Excel parser for structured data extraction
+Target: Clean + messy real-world files, accuracy is top priority
+Approach: Hybrid (rule-based + LLM fallback)
+Output: Flexible format, JSON primary
+Constraints: None specified
+
+Proceeding to full expansion based on this understanding.
+```
+
+This summary is stored as `{clarification_context}` for use in the expansion prompt. The user can correct any misunderstanding here before the agent invests in a full expansion.
+
+**If the user corrects something:** Update your understanding and re-summarize. Don't proceed until the summary is confirmed.
+
+#### Phase B — Autonomous Expansion
+
+With the clarification context from Phase A, proceed with the full expansion. The expansion is now grounded in confirmed user intent rather than agent guesswork.
+
+##### B1. Expand
 
 As the strategic layer, use the Appendix A (Expansion Prompt) template to think through:
 - Core systems the product needs
@@ -109,18 +243,21 @@ As the strategic layer, use the Appendix A (Expansion Prompt) template to think 
 - Industry standards (what a modern 2026 version looks like)
 - Quality attributes that matter for this product
 
+**Pass `{clarification_context}` from Phase A into the expansion prompt.** The expansion MUST respect the user's confirmed choices — do not override the selected approach, ignore stated constraints, or expand in a direction the user explicitly excluded.
+
 Output: a structured JSON product specification.
 
-#### 1b. Verification Review of Expansion
+##### B2. Verification Review of Expansion
 
 Spawn a **general-purpose subagent** with the Appendix B (Expansion Verification Review) template. This subagent gets:
 - The original user requirement
+- The clarification context (what the user confirmed in Phase A)
 - Your expansion output
 - Nothing else (no knowledge of your reasoning process)
 
-The verification reviewer will find gaps, blind spots, overscoped features, and missing edge cases.
+The verification reviewer will find gaps, blind spots, overscoped features, and missing edge cases. **Additionally, the reviewer checks that the expansion is faithful to the user's clarification choices.**
 
-#### 1c. Iterate Until Satisfied
+##### B3. Iterate Until Satisfied
 
 If the reviewer returns `satisfied: false`:
 1. Read their gaps and suggestions
@@ -132,19 +269,19 @@ If progress stalls (reviewer keeps finding new gaps after multiple rounds), appl
 - **Rethink**: step back and reconsider the product concept from a different angle
 - **Escalate**: present the remaining disagreement to the user as a scope choice
 
-#### 1d. Scope Contradiction Check (BEFORE presenting to user)
+##### B4. Scope Contradiction Check (BEFORE presenting to user)
 
 Before presenting the scope, run a self-check for contradictions between will-build items:
 
 1. **Core-vs-fallback contradiction:** If the will-build list contains both "X-powered Y" (e.g., "LLM-powered parsing") AND "works without X" (e.g., "graceful degradation to heuristic-only"), this is a contradiction. The fallback undermines the core by making X optional. **Fix:** Remove the fallback from will-build. Make it an implementation detail of the core feature (resilience is built into the core task, not a separate deliverable).
 
-2. **Core technique demoted to scope question:** If the technical analysis (Step 1a) concluded "technique X is needed to solve the core challenge," but X appears as a scope question with a "skip" option — that's a contradiction. **Fix:** X is will-build. The scope question can be about which PROVIDER/IMPLEMENTATION of X, not whether to use X.
+2. **Core technique demoted to scope question:** If the technical analysis (Phase B1) concluded "technique X is needed to solve the core challenge," but X appears as a scope question with a "skip" option — that's a contradiction. **Fix:** X is will-build. The scope question can be about which PROVIDER/IMPLEMENTATION of X, not whether to use X.
 
 3. **Eval-without-core:** If the eval framework is planned to run without the core feature enabled (e.g., eval uses heuristic-only mode), the eval can never validate the actual product. **Fix:** The eval plan must specify running with the product's intended configuration.
 
 If any contradictions found, resolve them BEFORE presenting to the user.
 
-#### 1e. Present to User
+#### B5. Present to User
 
 Format the finalized expansion as a scope confirmation — **选择题, not open-ended**.
 
@@ -242,7 +379,8 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
    - `test` — dedicated testing/eval tasks
    - `docs` — documentation only
    - `infra` — CI/CD, deployment, tooling infrastructure
-5. **Each task needs STRUCTURED acceptance criteria** — not free-text strings but typed criterion objects. Every criterion must have `type` and `description`. The harness mechanically validates the schema and rejects malformed criteria.
+5. **Each task MUST have a `scope_items` field** — an array of strings listing which will-build items from Step 1 this task implements or serves. This creates an explicit mapping from tasks to scope, which is used in Step 5b to generate the Task Brief. For scaffolding/infra tasks, list the scope items they support (e.g., a project init task supports all scope items). Every will-build item must appear in at least one task's `scope_items`.
+6. **Each task needs STRUCTURED acceptance criteria** — not free-text strings but typed criterion objects. Every criterion must have `type` and `description`. The harness mechanically validates the schema and rejects malformed criteria.
 
    **Criterion types and required fields:**
 
@@ -259,10 +397,11 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
    - `core` tasks MUST have at least 1 `real_data` criterion if the project has eval config
    - `scaffolding`, `docs`, and `infra` tasks are exempt from e2e/real_data requirements
    - `refactor` tasks must have regression/integration verification
+   - **e2e criteria `steps` MUST be mechanically executable commands** — NOT human GUI actions. "Launch in DevTools" / "Touch and drag" / "Observe the output" are NOT valid steps. Valid steps are commands the agent can run: `npx playwright test e2e/game.spec.ts`, `node tests/e2e-runner.js`, `curl http://localhost:3000/api/parse`. If the testing toolchain (from Step 3.5) uses Playwright, the steps should reference Playwright test files.
 
-6. **Integration checkpoints are mandatory.** After every 3-4 build tasks, insert an integration task that verifies the built modules work together end-to-end. Its acceptance criteria must include launching the actual product and exercising the core flow.
-7. **The final task must be end-to-end validation** — not another feature, but "launch the product and verify the complete user journey works." Acceptance criteria: the product starts, the core workflow executes successfully, and the output is what the user asked for.
-7. **Eval dataset task (if applicable) is a FIRST-CLASS deliverable, not an afterthought.** For projects with accuracy/quality goals, include a dedicated task early in the plan for building the eval dataset. This task must:
+7. **Integration checkpoints are mandatory.** After every 3-4 build tasks, insert an integration task that verifies the built modules work together end-to-end. Its acceptance criteria must include launching the actual product and exercising the core flow.
+8. **The final task must be end-to-end validation** — not another feature, but "launch the product and verify the complete user journey works." Acceptance criteria: the product starts, the core workflow executes successfully, and the output is what the user asked for.
+9. **Eval dataset task (if applicable) is a FIRST-CLASS deliverable, not an afterthought.** For projects with accuracy/quality goals, include a dedicated task early in the plan for building the eval dataset. This task must:
 
    **Data sourcing priority (in order — exhaust each before falling back):**
    1. **Public datasets & benchmarks** — search GitHub, Kaggle, HuggingFace, academic repos, government open data for existing test data in your domain. For Excel parsing: search for "sample Excel files", "test spreadsheets", financial report templates, government data releases. For NLP: use established benchmarks. For image: use standard test sets. Download and curate.
@@ -277,13 +416,13 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
    - Each difficulty category from the technical analysis has ≥ 3 real-world files
    - Ground truth annotations with field-level detail
    - The eval dataset task itself gets verification reviewed — the reviewer checks if the data is realistic enough to actually test the product
-8. **Core-first ordering (CRITICAL).** Tasks must be ordered so the CORE FUNCTION is built and validated on real data BEFORE any auxiliary features:
+10. **Core-first ordering (CRITICAL).** Tasks must be ordered so the CORE FUNCTION is built and validated on real data BEFORE any auxiliary features:
    - **Phase 1 — Core:** project scaffolding → core processing logic → real-data integration test. The integration test MUST use real-world input files (from Step 2.5 or the eval dataset), not synthetic fixtures. The core must pass this test before Phase 2 begins.
    - **Phase 2 — Auxiliary:** CLI, output formatters, batch processing, caching, config system, progress bars, etc. These tasks are BLOCKED until Phase 1's real-data integration test passes.
    - **Phase 3 — Polish:** documentation, eval framework, E2E validation.
 
    **Why:** Building 4 output formatters, a CLI with 6 commands, and a batch processing system before verifying the parser produces correct output is building a mansion on quicksand. The Excel parser project built 493 tests, 30+ models, and a full CLI — but the core parser produced wrong results on every real file. All that infrastructure was wasted effort.
-9. **Integration tests run with intended product configuration (CRITICAL).** The integration checkpoint and eval tasks MUST exercise the product with its core features ENABLED — not in fallback/degraded mode. If the product is designed to use LLM, integration tests run WITH LLM. If the product is designed to use a database, integration tests run WITH the database. Testing only the fallback path proves the fallback works — it proves nothing about the actual product.
+11. **Integration tests run with intended product configuration (CRITICAL).** The integration checkpoint and eval tasks MUST exercise the product with its core features ENABLED — not in fallback/degraded mode. If the product is designed to use LLM, integration tests run WITH LLM. If the product is designed to use a database, integration tests run WITH the database. Testing only the fallback path proves the fallback works — it proves nothing about the actual product.
 
    **Concrete rule:** The acceptance criteria for integration tasks (T9-equivalent) and eval tasks (T11-equivalent) MUST include: "Run with the product's intended configuration (all core features enabled). If a core feature requires an API key or external service, use the one the user provided." Do NOT use `--no-llm`, `use_llm=False`, or equivalent flags in integration tests unless specifically testing fallback behavior as a secondary test.
 
@@ -302,6 +441,7 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
       "title": "Project initialization",
       "description": "Create project structure, pyproject.toml, basic directory layout",
       "kind": "scaffolding",
+      "scope_items": ["Multi-format support", "Schema inference"],
       "acceptance_criteria": [
         { "type": "mechanical", "description": "pyproject.toml exists with project metadata" },
         { "type": "mechanical", "description": "src/ directory created with __init__.py" },
@@ -315,6 +455,7 @@ You are the strategic layer. Read the **confirmed design** and decompose it into
       "title": "Core parsing engine",
       "description": "Implement the main parsing logic",
       "kind": "core",
+      "scope_items": ["LLM-powered semantic structure detection", "Auto table region + header detection"],
       "acceptance_criteria": [
         { "type": "unit", "description": "Parser handles valid input formats", "verify_command": "pytest tests/test_parser.py" },
         { "type": "e2e", "description": "Parser produces correct output end-to-end",
@@ -371,6 +512,95 @@ $HARNESS memory-update --file architecture --content "<initial architecture over
 }
 ```
 The mechanical verifier will run this command and **reject any task completion where metrics fall below targets**. This is NOT optional — if the plan defines accuracy goals, they must be mechanically enforced.
+
+### Step 3.1 — Generate Task Briefs
+
+**Immediately after decomposition**, generate a Task Brief for EVERY task in the plan. Do not wait until the task execution loop — briefs must exist before the user reviews the eval framework (Step 3.5), so the user can assess the overall plan quality including per-task design depth.
+
+For EACH task in the plan, produce a Task Brief using the unified template and save it to `.meridian/tasks/T{n}/brief.md`:
+
+```markdown
+# Task Brief: T{n} — {title}
+
+## Objective
+{What this task delivers and its role in the overall product.}
+
+## Scope Items
+{Which will-build items from Step 1 does this task implement?}
+{For scaffolding/infra: which scope items does it serve?}
+
+## Design Specification
+
+### Module Architecture
+{Internal structure of this module: components, layers, responsibilities.}
+{For scaffolding: project structure design, each directory/file's purpose.}
+
+### Key Interfaces
+{Entry function signatures, class/interface definitions, data models.}
+{Specific field names, types, constraints — not "various fields".}
+{For scaffolding: config file schemas, project entry points.}
+
+### Data Flow
+{How data flows from input to output through this module.}
+{Write "N/A — [reason]" if not applicable.}
+
+### Integration Contracts
+{How this module interacts with others:}
+{- What interfaces it consumes from upstream tasks (from architecture design)}
+{- What interfaces it exposes for downstream tasks}
+
+## File Plan
+{Files to create or modify, with each file's responsibility:}
+- Create: `src/parser/engine.py` — core parsing engine
+- Create: `tests/test_parser_engine.py` — unit tests
+- Modify: `src/__init__.py` — register new module
+
+## Implementation Guidance
+
+### Approach
+{Recommended implementation approach and rationale.}
+
+### Key Decisions
+{Implementation decisions already made — execution agent should NOT re-decide.}
+
+### Edge Cases
+{Boundary conditions to handle. Write "N/A — [reason]" if not applicable.}
+
+### Anti-Patterns to Avoid
+{Common mistakes for this kind of task.}
+
+## Acceptance Criteria
+{Copy the full structured criteria from plan.json with complete context.}
+```
+
+**Rules:**
+1. **Every section must have content or "N/A — [reason]".** Empty sections are not allowed.
+2. **Key Interfaces must be concrete** — `parse(file: Path) → ParseResult` is good; "a function that parses files" is not.
+3. **File Plan must list exact paths**, not "create necessary files."
+4. **Briefs are derived from the architecture** (Step 2) — they extract and refine the relevant design for each task, not invent from scratch.
+5. **All tasks use the same template** — no tiers, no shortcuts. Simpler tasks will have shorter sections, but the structure is identical.
+
+```bash
+# For each task T{n}:
+mkdir -p .meridian/tasks/T{n}
+# Save brief content to .meridian/tasks/T{n}/brief.md
+```
+
+**After generating ALL briefs, validate them mechanically:**
+```bash
+# Check brief coverage and structure — exits 1 if any task is missing a brief or has missing sections
+$HARNESS brief-validate --dir $MERIDIAN_DIR
+```
+
+This is a **hard gate** — do NOT proceed to Step 3.5 until `brief-validate` passes. The harness checks that every task has a brief file with all required sections (Objective, Scope Items, Design Specification, File Plan, Implementation Guidance, Acceptance Criteria).
+
+You can also check status without failing:
+```bash
+# Shows per-task brief status (has_brief, brief_valid, missing_sections)
+$HARNESS brief-status --dir $MERIDIAN_DIR
+```
+
+**These are initial briefs.** In Step 5b (during execution), the strategic layer will REFINE each brief with the latest context from completed tasks — actual interfaces exposed, runtime discoveries, integration learnings. But the initial brief must already be detailed enough that an execution agent could implement from it without guessing.
 
 ### Step 3.5 — Verification Plan Review 👤 (User checkpoint 2/2)
 
@@ -460,6 +690,56 @@ Reply:
 - **Dataset composition:** Are the hard cases hard enough? Are edge cases covered?
 - **E2E scenarios:** Do they represent real user journeys, not just happy paths?
 - **Scoring fairness:** Would this eval catch a broken product, or would a mediocre product still score well?
+- **Testing toolchain (CRITICAL):** How will E2E scenarios be EXECUTED? What specific tools will run them?
+
+**Testing toolchain (MANDATORY section in eval framework):**
+
+The eval framework MUST specify **how E2E verification will be mechanically executed.** Every E2E scenario needs a concrete tool and execution command, not just a description of what to check.
+
+| Product Type | Required Tooling | Example Command |
+|---|---|---|
+| CLI/API | Direct invocation | `python -m parser parse file.xlsx --json` |
+| Web app | Playwright/Cypress | `npx playwright test e2e/flow.spec.ts` |
+| Game (browser) | Playwright + Canvas snapshot | `npx playwright test e2e/gameplay.spec.ts` |
+| Game (WeChat/native) | Browser adaptation + Playwright | Wrap in HTML shell → `npx playwright test` |
+| Mobile app | Appium/Detox | `npx detox test --configuration ios.sim` |
+| Desktop app | Playwright (Electron) | `npx playwright test --config=electron.config.ts` |
+
+**Include this section in the eval framework presentation:**
+```
+━━━ Testing Toolchain ━━━
+
+  E2E execution: Playwright
+  Install: npx playwright install
+  Run: npx playwright test e2e/
+  
+  How it works:
+    1. Game wrapped as standard HTML page (Canvas 2D is standard Web API)
+    2. Playwright launches browser, loads game
+    3. Simulates touch events via page.touchscreen API
+    4. Canvas screenshots compared to reference images
+    5. FPS sampled via performance.now() injection
+
+  Fallback if primary tool unavailable: [describe alternative]
+```
+
+**If the agent cannot identify a viable E2E automation tool** after research, it MUST escalate to the user in Step 3.5:
+```
+⚠️ E2E 自动化验证风险
+
+本产品的核心体验无法通过已知的自动化工具验证：
+  原因：[具体原因，如"WeChat 小游戏 runtime 没有 headless 模式"]
+  影响：Agent 只能验证逻辑正确性（单元测试），无法保证真实运行效果
+  已调研工具：[列出调研过的工具及不可行的原因]
+
+建议方案：
+  → [A] 将核心逻辑包装为可自动化的 headless 环境（推荐）
+  → [B] Agent 构建 + 单元测试，用户负责手工 E2E 验证
+  → [C] 缩小 scope，只构建可自动化验证的部分
+
+请选择方案或提供替代思路。
+```
+**用户必须显式选择方案后才能继续。不允许静默跳过此警告。**
 
 **Red flags the user should watch for:**
 - Eval targets below 0.90 → "Is this really acceptable for production use?"
@@ -549,8 +829,9 @@ For each task in dependency order:
 #### 5a. Check if task is ready
 All dependencies must be done. Check via `$HARNESS task-status --task <dep_id> --dir $MERIDIAN_DIR`.
 
-#### 5b. Refine the task
-As the strategic layer, refine the coarse task into specific implementation instructions. Read current memory to understand what's been built:
+#### 5b. Refine Task Brief & assemble execution prompt
+
+The initial Task Brief was generated in Step 3.1. Now **refine it** with the latest context from completed tasks. Read current memory:
 
 ```bash
 $HARNESS memory-read --file project_brief --dir $MERIDIAN_DIR
@@ -563,11 +844,25 @@ $HARNESS memory-read --file completed_tasks --dir $MERIDIAN_DIR
 - `core`/`feature` tasks must have at least 1 `e2e` or `integration` criterion
 - If criteria need upgrading, use `plan-adjust` to update them before dispatching
 
-Create a detailed execution prompt by filling in the template from Appendix E (Execution Subagent Prompt) with:
-- `{project_brief}`: from memory
-- `{architecture}`: from memory
+##### Refine the Task Brief
+
+Read the existing brief from `.meridian/tasks/T{n}/brief.md` and update it with:
+
+1. **Integration Contracts** — replace architecture-derived interfaces with **actual interfaces** from completed dependency tasks. If T1 was supposed to expose `GameLoop.start()` but actually implemented `Game.run()`, the brief for T2 must reflect the real interface.
+2. **Lessons learned** — if previous tasks revealed unexpected constraints or patterns, incorporate them.
+3. **File Plan adjustments** — if the actual project structure differs from the initial plan (files renamed, new files discovered), update paths.
+
+Save the refined brief back to `.meridian/tasks/T{n}/brief.md`.
+
+**If no dependencies have completed yet (e.g., T1)**, the initial brief from Step 3.1 is already sufficient — no refinement needed. Proceed directly to assembling the execution prompt.
+
+##### Assemble the execution prompt
+
+Create the execution prompt by filling in the template from Appendix E (Execution Subagent Prompt) with:
+- `{project_brief}`: from memory — the global project context
+- `{architecture}`: from memory — the full architecture for big-picture awareness
+- `{task_brief}`: the Task Brief generated above — the primary implementation reference
 - `{relevant_decisions}`: from decisions_log
-- `{task_description}`: the refined task instructions
 - `{acceptance_criteria}`: from the plan — pass the full structured criteria objects, not just descriptions
 - `{dependency_summaries}`: summaries of completed dependency tasks
 - `{iteration_context}`: empty on first attempt
@@ -1119,11 +1414,20 @@ All prompt templates are embedded below. When dispatching subagents, fill in the
 
 ### A. Expansion Prompt
 
-Use this in Step 1a when expanding the user's requirement.
+Use this in Phase B1 when expanding the user's requirement. Phase A (Requirement Clarification) has already been completed — the `{clarification_context}` contains what the user confirmed through interactive dialogue.
 
 > You are a product architect. The user gave a brief requirement. Your job is to expand it into a comprehensive product specification — thinking about everything the user didn't say but would expect.
 >
 > **User's Original Requirement:** {requirement}
+>
+> **Clarification Context (from user dialogue):** {clarification_context}
+>
+> The clarification context above captures what the user confirmed through interactive Q&A before this expansion. **You MUST treat it as binding:**
+> - Do NOT override the user's confirmed technical approach
+> - Do NOT expand in directions the user explicitly excluded
+> - Do NOT add scope the user said is out of bounds
+> - DO use it to inform your expansion — the user's stated goals, constraints, and priorities should shape every feature decision
+> - If the clarification is sparse (user's requirement was already specific), expand freely but stay aligned with stated intent
 >
 > **Existing Project Context (if any):** {existing_project_context}
 >
@@ -1139,7 +1443,7 @@ Use this in Step 1a when expanding the user's requirement.
 >
 > **RULE 1: Your own technical analysis binds your feature list.** If step 1 concludes "technique X is needed to solve the core challenge," then technique X is will-build — not optional, not a scope question with a skip option. You can ask the user to choose between implementations/providers of X, but you cannot offer to skip X entirely. Check yourself: does your feature list contradict your own technical analysis?
 >
-> **RULE 2: Only ask users for things the agent can't get itself.** API keys, private credentials, proprietary data, paid accounts — these need user confirmation upfront at scope confirmation (Step 1d). But test data, sample files, public datasets — the agent should find, download, or generate these autonomously. Don't burden the user with tasks the agent can do.
+> **RULE 2: Only ask users for things the agent can't get itself.** API keys, private credentials, proprietary data, paid accounts — these need user confirmation upfront at scope confirmation (Phase B5). But test data, sample files, public datasets — the agent should find, download, or generate these autonomously. Don't burden the user with tasks the agent can do.
 >
 > **RULE 3: No dumping ground categories.** "Deferred to v1.1", "nice-to-have", "future work" — these are ways to avoid hard decisions. Either it's will-build, or it's a scope question where the user explicitly chooses. Every feature must be in one of those two buckets.
 >
@@ -1186,31 +1490,44 @@ Use this in Step 1a when expanding the user's requirement.
 
 ### B. Expansion Verification Review Prompt
 
-Use this in Step 1b. Dispatch as an independent subagent — give it the original requirement and the expansion, nothing else.
+Use this in Phase B2. Dispatch as an independent subagent — give it the original requirement, the clarification context, and the expansion.
 
 > You are an independent product reviewer. Someone else expanded a brief user requirement into a product specification. Your job is to **find what they missed** — gaps, blind spots, unrealistic assumptions, missing user journeys. You did NOT write this expansion.
 >
 > **Original User Requirement:** {requirement}
 >
+> **Clarification Context (what user confirmed in dialogue):** {clarification_context}
+>
 > **Their Expansion:** {expansion}
 >
 > **Review checklist:**
-> 1. **Technical depth (CRITICAL)** — Did the expansion identify the CORE TECHNICAL CHALLENGE? Did it analyze why naive approaches fail? Specific red flags:
+> 1. **Clarification fidelity (CRITICAL)** — The clarification context above records what the user explicitly confirmed through interactive Q&A. Check:
+>    - Does the expansion respect the user's confirmed technical approach? If the user chose "hybrid approach" in clarification, the expansion should not propose a pure rule-based solution.
+>    - Does the expansion stay within the user's stated scope boundaries? If the user said "CLI tool only", the expansion should not include a web UI as will-build.
+>    - Does the expansion honor the user's stated constraints (tech stack, target users, priority)?
+>    - **Any expansion that contradicts the user's clarification choices = critical finding.** The user already made these decisions — the expansion must build on them, not override them.
+> 2. **Technical depth (CRITICAL)** — Did the expansion identify the CORE TECHNICAL CHALLENGE? Did it analyze why naive approaches fail? Specific red flags:
 >    - Proposing heuristic/rule-based approaches for problems that require semantic understanding (e.g., parsing unstructured documents, understanding messy real-world data, classifying ambiguous content). Rules work for clean data; real-world data is never clean.
 >    - Jumping straight to "smart detection" or "intelligent analysis" without specifying WHAT technique powers the intelligence (LLM? ML model? pattern matching?). Buzzwords are not technical approaches.
 >    - Missing the question: "What happens when the input doesn't match any expected pattern?" If the answer is undefined, the approach is fragile.
 >    - If the problem domain involves understanding human-created content (documents, spreadsheets, forms, emails), and the approach is purely algorithmic with no AI/LLM component, this is almost certainly a critical gap.
 >    - **PRIORITY GAMING CHECK:** If the technical challenge analysis concluded "need technique X" but technique X appears as optional, skippable, or a scope question with a "skip entirely" option — that's a critical contradiction. The core technical solution cannot be optional. Check: does the feature list contradict the technical analysis?
 >    - **DEFERRED DUMPING CHECK:** Is there a "Deferred to v1.1", "nice-to-have", or "future work" section? This is a banned category. Each item must be either will-build or an explicit scope question.
-> 2. Coverage gaps — any moment the user would be stuck/confused?
-> 3. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
-> 4. Edge cases — first use, wrong input, dependency failures, scaling
-> 5. "Obvious" features skipped — settings, undo, help, export, accessibility, error messages
-> 6. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? Features placed in "should-have", "optional", or "deferred to v1.1" that are clearly needed for the product to work as described? Scope questions that offer "skip entirely" for the core technical approach? **Any scope reduction = critical finding.**
-> 7. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
-> 8. Consistency — features, systems, quality targets tell coherent story?
-> 9. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
-> 10. **Eval strategy (CRITICAL for AI/ML)** — is there an eval dataset spec, accuracy metrics, and ground truth source? Check specifically:
+> 3. Coverage gaps — any moment the user would be stuck/confused?
+> 4. Missing systems — implicit systems forgotten? (persistence, error handling, config, logging...)
+> 5. Edge cases — first use, wrong input, dependency failures, scaling
+> 6. "Obvious" features skipped — settings, undo, help, export, accessibility, error messages
+> 7. **Scope reduction (CRITICAL)** — did user say "surpass X" but expansion describes "basic X"? Weasel phrases like "manageable" or "consolidate"? Features placed in "should-have", "optional", or "deferred to v1.1" that are clearly needed for the product to work as described? Scope questions that offer "skip entirely" for the core technical approach? **Any scope reduction = critical finding.**
+> 8. Unrealistic scope — priorities honest? (ambitious scope is fine if user asked for it)
+> 9. Consistency — features, systems, quality targets tell coherent story?
+> 10. **E2E definition** — did they define what "product works end-to-end" means? Missing = critical gap.
+> 11. **E2E executability (CRITICAL)** — are the E2E scenarios defined in terms of mechanically executable commands? Red flags:
+>    - Steps that require GUI interaction: "Launch in DevTools", "Touch and drag", "Observe the output" — these are NOT executable by the agent
+>    - Missing testing toolchain: no mention of HOW E2E will be automated (Playwright? curl? direct CLI invocation?)
+>    - For GUI/game/frontend products: if no browser automation tool (Playwright/Puppeteer/Cypress) is specified, this is a critical gap — the product CANNOT be verified end-to-end without one
+>    - Mock-based "E2E": if the plan proposes running E2E tests with mocked dependencies (mock wx, mock browser), this is NOT E2E — it's a unit test with extra steps. E2E means running the actual product.
+>    **Any E2E scenario that the agent cannot mechanically execute = critical finding.**
+> 12. **Eval strategy (CRITICAL for AI/ML)** — is there an eval dataset spec, accuracy metrics, and ground truth source? Check specifically:
 >    - Does the eval dataset spec describe REALISTIC data, or just toy examples? "3 rows, 4 columns" is a unit test, not eval.
 >    - Does it cover all difficulty categories from the technical challenge analysis?
 >    - Does it include adversarial cases that target known failure modes?
@@ -1218,9 +1535,9 @@ Use this in Step 1b. Dispatch as an independent subagent — give it the origina
 >    - Is the planned volume sufficient (50+ files for MVP, not 18)?
 >    - Where does test data come from? Agent should source/generate it — not burden the user.
 >    Without eval, you can't verify the product works. Weak eval is worse than no eval — it creates false confidence. Missing or toy-level eval = critical gap.
-> 11. **External dependencies** — does the product need API keys, external services, credentials? Are they explicitly listed? Missing = critical gap (user can't build it without knowing what accounts to set up).
+> 13. **External dependencies** — does the product need API keys, external services, credentials? Are they explicitly listed? Missing = critical gap (user can't build it without knowing what accounts to set up).
 >
-> **Output:** JSON with `gaps[]`, `scope_reduction[]`, `overscoped[]`, `satisfied` (bool), `summary`. Any non-empty `scope_reduction` = automatic `satisfied: false`.
+> **Output:** JSON with `gaps[]`, `scope_reduction[]`, `clarification_violations[]`, `overscoped[]`, `satisfied` (bool), `summary`. Any non-empty `scope_reduction` or `clarification_violations` = automatic `satisfied: false`.
 
 ### C. Design Prompt
 
@@ -1282,17 +1599,26 @@ Use this in Step 5c. Fill placeholders and dispatch as an isolated subagent.
 > You are implementing a specific development task. Write production-quality code.
 >
 > **Project Overview:** {project_brief}
-> **Current Architecture:** {architecture}
-> **Relevant Decisions:** {relevant_decisions}
-> **Your Task:** {task_description}
-> **Acceptance Criteria** (structured — each will be mechanically verified):
-> {acceptance_criteria}
+> **Current Architecture (global):** {architecture}
 >
-> Each criterion above is a structured object with a `type` (mechanical, unit, integration, e2e, real_data). Pay special attention to:
-> - **e2e criteria**: Execute the exact `steps` and verify the output matches `expected`. Paste the actual terminal output as evidence.
-> - **real_data criteria**: Use the file at `data_file` (or run `fetch_command` to obtain it). Run the product on this real-world input and verify output matches `expected`.
-> - **integration criteria**: Verify the `expected` integration behavior works across module boundaries.
-> - For criteria with `verify_command`: run that command and paste output.
+> ---
+>
+> **Task Brief (your primary implementation reference):**
+>
+> {task_brief}
+>
+> ---
+>
+> **Relevant Decisions:** {relevant_decisions}
+>
+> **How to use the context above:**
+> - The **Task Brief** is your primary guide — it contains the detailed design, interfaces, file plan, and implementation guidance for THIS task specifically. Implement according to the brief.
+> - The **Architecture** provides the big picture — use it to understand how your module fits into the overall system, but don't implement things outside your task's scope.
+> - The **Acceptance Criteria** (included in the Task Brief) will be mechanically verified. Pay special attention to:
+>   - **e2e criteria**: Execute the exact `steps` and verify the output matches `expected`. Paste the actual terminal output as evidence.
+>   - **real_data criteria**: Use the file at `data_file` (or run `fetch_command` to obtain it). Run the product on this real-world input and verify output matches `expected`.
+>   - **integration criteria**: Verify the `expected` integration behavior works across module boundaries.
+>   - For criteria with `verify_command`: run that command and paste output.
 >
 > **Context from Completed Tasks:** {dependency_summaries}
 > **Working Directory:** {working_directory}
