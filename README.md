@@ -172,21 +172,23 @@ Step 5 — Handle Decisions
 Step 6 — Task Execution Loop ←────────────────────┐
 │  for each task:                                  │
 │    6a. Check dependencies ready                  │
-│    6b. Generate Task Brief (structured delivery  │
+│    6b. Git preflight: repo exists + clean product│
+│        worktree, so task diff is attributable    │
+│    6c. Generate Task Brief (structured delivery  │
 │        doc: objective, design spec, interfaces,  │
 │        file plan, implementation guidance)        │
-│    6c. Execution subagent writes code (isolated)  │
+│    6d. Execution subagent writes code (isolated)  │
 │        receives: architecture + task_brief        │
 │        └─ Writes own tests (self-check, untrusted)│
-│    6d. Verification subagent (isolated context):  │
-│        Phase 1: $HARNESS verify (baseline)        │
+│    6e. Verification subagent (isolated context):  │
+│        Phase 1: $HARNESS verify --mode task       │
 │          execution's tests + lint + build + eval  │
 │        Phase 2: Writes OWN acceptance scripts     │
 │          e2e/real_data/integration — independent  │
 │          runs them, records pass/fail per criterion│
 │        Phase 3: Spec compliance + code quality    │
 │          will-build usage, bugs, YAGNI            │
-│    6e. Strategic reads verdict:                   │
+│    6f. Strategic reads verdict:                   │
 │        any phase FAIL → overall FAIL              │
 │        all clear → PASS                          │
 │    6f. Handle verdict:                            │
@@ -284,8 +286,8 @@ meridian-harness brief-status | brief-validate
 meridian-harness task-reopen | plan-adjust
 meridian-harness iteration-record | iteration-count
 
-# Verification (baseline — execution's self-checks)
-meridian-harness detect-tools | verify | eval-config
+# Verification (preflight + execution self-checks)
+meridian-harness preflight | detect-tools | verify --mode baseline|task | eval-config
 
 # Memory
 meridian-harness memory-read | memory-update | memory-read-all | memory-resolve-issue
@@ -298,7 +300,7 @@ meridian-harness report-due | report-format
 meridian-harness checkpoint-due
 ```
 
-All commands output JSON. Zero runtime dependencies. 94 integration tests.
+All commands output JSON. Zero runtime dependencies. 115 integration tests.
 
 **Note:** The harness runs execution's own tests as a baseline check. Acceptance verification (E2E, real-data) is independently written and run by the verification subagent — not by the harness.
 

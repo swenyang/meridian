@@ -85,7 +85,8 @@ try { run(`task-complete --task T1 --summary "Done" --dir ${DIR}`); } catch { th
 assert("task-complete blocked without verdict", { threw }, "threw", "true");
 
 // Submit a PASS verdict
-const passVerdict = JSON.stringify({result:"PASS",baseline_harness:{verdict:"PASS"},acceptance_verification:{pass:true,criteria_results:[{criterion:"dir exists",met:true,evidence:"verified"}]}});
+const passBaselineHarness = { verdict: "PASS", checks: { evidence: { required: true, pass: true, files_changed: 1, files: ["src/app.js"] } } };
+const passVerdict = JSON.stringify({result:"PASS",baseline_harness:passBaselineHarness,acceptance_verification:{pass:true,criteria_results:[{criterion:"dir exists",met:true,evidence:"verified"}]}});
 r = run(`task-submit-verdict --task T1 --verdict ${quote(passVerdict)} --dir ${DIR}`);
 assert("task-submit-verdict works", r, "submitted", "true");
 assert("verdict result is PASS", r, "result", "PASS");
@@ -293,6 +294,18 @@ threw = false;
 try { run(`task-submit-verdict --task L1 --verdict ${quote(contradictVerdict)} --dir ${DIR}`); } catch { threw = true; }
 assert("PASS verdict with baseline FAIL rejected", { threw }, "threw", "true");
 
+// Submit PASS verdict from baseline mode — should be rejected because task evidence was not required.
+const baselineModeVerdict = JSON.stringify({result:"PASS",baseline_harness:{verdict:"PASS",checks:{evidence:{required:false,pass:false,files_changed:0}}},acceptance_verification:{pass:true,criteria_results:[{criterion:"ok",met:true,evidence:"yes"}]}});
+threw = false;
+try { run(`task-submit-verdict --task L1 --verdict ${quote(baselineModeVerdict)} --dir ${DIR}`); } catch { threw = true; }
+assert("PASS verdict from baseline mode rejected", { threw }, "threw", "true");
+
+// Submit PASS verdict with task-mode evidence failure — should be rejected.
+const noChangeVerdict = JSON.stringify({result:"PASS",baseline_harness:{verdict:"PASS",checks:{evidence:{required:true,pass:false,files_changed:0,reason:"no_product_changes"}}},acceptance_verification:{pass:true,criteria_results:[{criterion:"ok",met:true,evidence:"yes"}]}});
+threw = false;
+try { run(`task-submit-verdict --task L1 --verdict ${quote(noChangeVerdict)} --dir ${DIR}`); } catch { threw = true; }
+assert("PASS verdict with failed evidence rejected", { threw }, "threw", "true");
+
 // Overwrite with valid PASS verdict — now task-complete should work
 r = run(`task-submit-verdict --task L1 --verdict ${quote(passVerdict)} --dir ${DIR}`);
 assert("overwrite to PASS verdict", r, "result", "PASS");
@@ -320,7 +333,7 @@ run(`plan-set --plan ${e2ePlan} --dir ${DIR}`);
 // e2e verdict WITHOUT verification_script — should be REJECTED
 const noScriptVerdict = JSON.stringify({
   result: "PASS",
-  baseline_harness: { verdict: "PASS" },
+  baseline_harness: passBaselineHarness,
   acceptance_verification: {
     pass: true,
     criteria_results: [
@@ -336,7 +349,7 @@ assert("e2e verdict without verification_script rejected", { threw }, "threw", "
 // e2e verdict WITH verification_script but no actual_output — should be REJECTED
 const noOutputVerdict = JSON.stringify({
   result: "PASS",
-  baseline_harness: { verdict: "PASS" },
+  baseline_harness: passBaselineHarness,
   acceptance_verification: {
     pass: true,
     criteria_results: [
@@ -352,7 +365,7 @@ assert("e2e verdict without actual_output rejected", { threw }, "threw", "true")
 // e2e verdict WITH both — should PASS
 const fullE2eVerdict = JSON.stringify({
   result: "PASS",
-  baseline_harness: { verdict: "PASS" },
+  baseline_harness: passBaselineHarness,
   acceptance_verification: {
     pass: true,
     criteria_results: [
@@ -369,7 +382,7 @@ assert("e2e verdict with script+output accepted", r, "submitted", "true");
 // baseline all-skipped produces warning
 const allSkipVerdict = JSON.stringify({
   result: "PASS",
-  baseline_harness: { verdict: "PASS", checks: { test: { skipped: true }, lint: { skipped: true }, build: { skipped: true }, evidence: { pass: true, files_changed: 5 } } },
+  baseline_harness: { verdict: "PASS", checks: { test: { skipped: true }, lint: { skipped: true }, build: { skipped: true }, evidence: { required: true, pass: true, files_changed: 5 } } },
   acceptance_verification: { pass: true, criteria_results: [{ criterion: "ok", met: true, evidence: "yes" }] }
 });
 r = run(`task-submit-verdict --task EG1 --verdict ${quote(allSkipVerdict)} --dir ${DIR}`);
@@ -526,9 +539,67 @@ process.on("exit", () => { try { rmSync(critProjectDir, { recursive: true, force
 run(`init --dir ${critMeridianDir}`);
 
 // verify runs baseline checks (no --task needed — acceptance verification is done by verification subagent)
-r = run(`verify --dir ${critMeridianDir}`);
+r = run(`verify --dir ${critMeridianDir} --mode baseline`);
 assert("baseline verify has no criteria field", { ok: !r.checks.criteria }, "ok", "true");
 assert("baseline verify has evidence check", { ok: r.checks.evidence != null }, "ok", "true");
+assert("baseline verify does not require evidence", r, "checks.evidence.required", "false");
+
+// Baseline mode should allow pre-task checks in a non-git project.
+const nonGitProjectDir = join(process.env.TEMP || resolve(__dirname, ".."), `_test-nongit-project-${process.pid}`);
+mkdirSync(join(nonGitProjectDir, ".meridian"), { recursive: true });
+writeFileSync(join(nonGitProjectDir, "package.json"), JSON.stringify({
+  scripts: { test: "node -e \"process.exit(0)\"" }
+}, null, 2));
+process.on("exit", () => { try { rmSync(nonGitProjectDir, { recursive: true, force: true }); } catch {} });
+
+r = run(`verify --dir ${join(nonGitProjectDir, ".meridian")} --mode baseline`);
+assert("baseline mode passes without git evidence", r, "verdict", "PASS");
+assert("baseline mode marks evidence informational", r, "checks.evidence.required", "false");
+
+r = run(`verify --dir ${join(nonGitProjectDir, ".meridian")} --mode task`);
+assert("task mode fails without git repository", r, "verdict", "FAIL");
+assert("task mode reports missing git root cause", r, "checks.evidence.reason", "not_git_repository");
+
+r = run(`preflight --dir ${join(nonGitProjectDir, ".meridian")}`);
+assert("preflight fails without git repository", r, "pass", "false");
+assert("preflight reports missing git root cause", r, "reason", "not_git_repository");
+
+// Task mode should count untracked product files, while ignoring generated/tooling output.
+const gitProjectDir = join(resolve(__dirname, ".."), `_test-git-project-${process.pid}`);
+const gitMeridianDir = join(gitProjectDir, ".meridian");
+mkdirSync(gitMeridianDir, { recursive: true });
+writeFileSync(join(gitProjectDir, "package.json"), JSON.stringify({
+  scripts: { test: "node -e \"process.exit(0)\"" }
+}, null, 2));
+writeFileSync(join(gitProjectDir, ".gitignore"), "node_modules/\ndist/\ncoverage/\ntest-results/\n");
+execSync("git init", { cwd: gitProjectDir, stdio: "ignore" });
+execSync("git add package.json .gitignore", { cwd: gitProjectDir, stdio: "ignore" });
+execSync("git -c user.name=Meridian -c user.email=meridian@example.invalid commit -m init", { cwd: gitProjectDir, stdio: "ignore" });
+writeFileSync(join(gitMeridianDir, "generated.json"), "{}\n");
+
+r = run(`preflight --dir ${gitMeridianDir}`);
+assert("preflight passes for clean git worktree", r, "pass", "true");
+assert("preflight ignores meridian metadata", r, "files_changed", "0");
+
+mkdirSync(join(gitProjectDir, "src"), { recursive: true });
+mkdirSync(join(gitProjectDir, "node_modules"), { recursive: true });
+mkdirSync(join(gitProjectDir, "dist"), { recursive: true });
+mkdirSync(join(gitProjectDir, "test-results"), { recursive: true });
+writeFileSync(join(gitProjectDir, "src", "app.js"), "console.log('changed');\n");
+writeFileSync(join(gitProjectDir, "node_modules", "cache.js"), "ignored\n");
+writeFileSync(join(gitProjectDir, "dist", "bundle.js"), "ignored\n");
+writeFileSync(join(gitProjectDir, "test-results", "out.xml"), "ignored\n");
+process.on("exit", () => { try { rmSync(gitProjectDir, { recursive: true, force: true }); } catch {} });
+
+r = run(`preflight --dir ${gitMeridianDir}`);
+assert("preflight fails with pre-existing product changes", r, "pass", "false");
+assert("preflight reports dirty worktree", r, "reason", "dirty_worktree");
+assert("preflight lists dirty product file", { ok: (r.files || []).includes("src/app.js") }, "ok", "true");
+
+r = run(`verify --dir ${gitMeridianDir} --mode task`);
+assert("task mode passes with untracked product change", r, "verdict", "PASS");
+assert("task evidence counts only product changes", r, "checks.evidence.files_changed", "1");
+assert("task evidence lists untracked product file", { ok: (r.checks.evidence.files || []).includes("src/app.js") }, "ok", "true");
 
 // --- Task Briefs ---
 console.log("\n--- Task Briefs ---");

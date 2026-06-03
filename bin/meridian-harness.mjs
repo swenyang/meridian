@@ -59,7 +59,8 @@ Task Briefs:
 
 Verification:
   detect-tools --dir <path>                  Detect available verification tools
-  verify --dir <path>                        Run baseline mechanical verification (execution's tests, lint, build, eval)
+  preflight --dir <path>                     Verify Git product worktree is clean before task dispatch
+  verify --dir <path> [--mode baseline|task] Run mechanical verification (baseline checks or task evidence gate)
   eval-config --command <cmd> --targets <json> --dir <path>  Set eval targets
 
 Memory:
@@ -230,7 +231,16 @@ switch (command) {
     const { verify } = await import("./lib/verify.mjs");
     const dir = resolveDir(flags.dir);
     const projectDir = resolve(dir, "..");
-    const result = verify(projectDir, dir);
+    const result = verify(projectDir, dir, { mode: flags.mode });
+    console.log(JSON.stringify(result));
+    break;
+  }
+
+  case "preflight": {
+    const { preflight } = await import("./lib/verify.mjs");
+    const dir = resolveDir(flags.dir);
+    const projectDir = resolve(dir, "..");
+    const result = preflight(projectDir);
     console.log(JSON.stringify(result));
     break;
   }

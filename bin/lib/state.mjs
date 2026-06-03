@@ -496,6 +496,20 @@ export function taskSubmitVerdict(dir, taskId, verdict) {
     throw new Error("Cannot submit PASS verdict when baseline_harness.verdict is FAIL. Fix baseline issues first.");
   }
 
+  // Gate 2b: PASS verdicts must come from task-mode harness output with product file evidence.
+  if (result === "PASS") {
+    const evidence = verdict.baseline_harness.checks?.evidence;
+    if (!evidence) {
+      throw new Error("baseline_harness missing checks.evidence. Run $HARNESS verify --mode task and submit the actual harness output.");
+    }
+    if (evidence.required !== true) {
+      throw new Error("Cannot submit PASS verdict from baseline-mode verification. Run $HARNESS verify --mode task so file-change evidence is required.");
+    }
+    if (evidence.pass !== true || Number(evidence.files_changed || 0) <= 0) {
+      throw new Error("Cannot submit PASS verdict without passing product file-change evidence from $HARNESS verify --mode task.");
+    }
+  }
+
   // Gate 3: acceptance_verification must exist with per-criterion results
   if (!verdict.acceptance_verification) {
     throw new Error("Verdict missing 'acceptance_verification' field. Verification subagent must independently verify acceptance criteria.");

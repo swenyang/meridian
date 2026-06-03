@@ -8,6 +8,14 @@ import { resolve, join } from "path";
 
 const CHECK_TIMEOUT_MS = 60_000;
 const OUTPUT_TAIL_CHARS = 2000;
+const VERIFY_MODES = new Set(["baseline", "task"]);
+const IGNORED_EVIDENCE_PREFIXES = [
+  ".meridian/",
+  "node_modules/",
+  "dist/",
+  "coverage/",
+  "test-results/",
+];
 
 /**
  * Auto-detect available verification tools in the project directory.
@@ -96,6 +104,7 @@ export function runCheck(projectDir, checkName, command) {
         duration_ms: CHECK_TIMEOUT_MS,
       };
     }
+
     const combined = [err.stdout, err.stderr].filter(Boolean).join("\n");
     return {
       check: checkName,
@@ -108,11 +117,57 @@ export function runCheck(projectDir, checkName, command) {
 }
 
 /**
+ * Pre-task gate: task-specific evidence is only meaningful when a task starts
+ * from a clean Git product worktree.
+ */
+export function preflight(projectDir) {
+  if (!isGitWorktree(projectDir)) {
+    return {
+      pass: false,
+      reason: "not_git_repository",
+      files_changed: 0,
+      files: [],
+      remediation: "Initialize git in the project root and establish a clean baseline before dispatching a task.",
+    };
+  }
+
+  try {
+    const files = getProductChangedFiles(projectDir);
+    if (files.length > 0) {
+      return {
+        pass: false,
+        reason: "dirty_worktree",
+        files_changed: files.length,
+        files,
+        remediation: "Commit, stash, or revert existing product changes before dispatching the next task.",
+      };
+    }
+
+    return {
+      pass: true,
+      files_changed: 0,
+      files: [],
+      summary: "Git product worktree is clean for task dispatch.",
+    };
+  } catch {
+    return {
+      pass: false,
+      reason: "git_status_failed",
+      files_changed: 0,
+      files: [],
+      remediation: "Unable to read git status. Check the repository state before dispatching a task.",
+    };
+  }
+}
+
+/**
  * Run all detected checks and produce a verdict.
  * This is the BASELINE check — execution's own tests, lint, build, eval targets.
  * Per-criterion acceptance verification is done independently by the verification subagent.
  */
-export function verify(projectDir, meridianDir) {
+export function verify(projectDir, meridianDir, options = {}) {
+  const mode = normalizeVerifyMode(options.mode);
+  const requireEvidence = mode === "task";
   const detected = detect(projectDir);
   const checks = {};
   let ran = 0;
@@ -131,8 +186,8 @@ export function verify(projectDir, meridianDir) {
     if (result.pass) passed++;
   }
 
-  // Evidence: check for changed files via git
-  const evidence = getEvidence(projectDir);
+  // Evidence: task verification requires product file changes; baseline runs only report it.
+  const evidence = getEvidence(projectDir, { required: requireEvidence });
   checks.evidence = evidence;
 
   // Eval targets: if plan defines eval_command + eval_targets, run eval and compare
@@ -144,19 +199,16 @@ export function verify(projectDir, meridianDir) {
   }
 
   const allPassed = passed === ran;
-  const hasEvidence = evidence.pass;
+  const hasEvidence = !requireEvidence || evidence.pass;
 
   let verdict;
-  if (ran === 0) {
-    verdict = "PASS";
-  } else {
-    verdict = allPassed && hasEvidence ? "PASS" : "FAIL";
-  }
+  verdict = allPassed && hasEvidence ? "PASS" : "FAIL";
 
   const parts = [];
   parts.push(`${passed}/${ran} checks passed`);
   if (skipped > 0) parts.push(`${skipped} skipped`);
-  parts.push(`${evidence.files_changed} files changed`);
+  parts.push(`${evidence.files_changed} product files changed`);
+  if (!evidence.pass && evidence.reason) parts.push(`evidence: ${evidence.reason}`);
   if (evalResult && !evalResult.pass) {
     parts.push(`EVAL FAILED: ${evalResult.failures.join(", ")}`);
   }
@@ -172,6 +224,14 @@ export function verify(projectDir, meridianDir) {
 }
 
 // --- helpers ---
+
+function normalizeVerifyMode(mode) {
+  const normalized = mode || "task";
+  if (!VERIFY_MODES.has(normalized)) {
+    throw new Error(`Invalid verify mode '${normalized}'. Use 'baseline' or 'task'.`);
+  }
+  return normalized;
+}
 
 /**
  * Run eval check if plan defines eval_command + eval_targets.
@@ -280,31 +340,77 @@ function tail(str, maxChars) {
   return str.slice(-maxChars);
 }
 
-function getEvidence(projectDir) {
+function getEvidence(projectDir, { required } = { required: true }) {
+  const base = { required, pass: false, files_changed: 0, files: [] };
+
+  if (!isGitWorktree(projectDir)) {
+    return withEvidenceFailure(base, "not_git_repository");
+  }
+
   try {
-    const output = execSync("git diff --name-only HEAD", {
+    const files = getProductChangedFiles(projectDir);
+    if (files.length === 0) {
+      return withEvidenceFailure(base, "no_product_changes");
+    }
+    return { ...base, pass: true, files_changed: files.length, files };
+  } catch {
+    return withEvidenceFailure(base, "git_status_failed");
+  }
+}
+
+function isGitWorktree(projectDir) {
+  try {
+    const inside = execSync("git rev-parse --is-inside-work-tree", {
       cwd: projectDir,
       encoding: "utf-8",
       timeout: 10_000,
       stdio: ["pipe", "pipe", "pipe"],
-    });
-    const files = output.trim().split("\n").filter(Boolean);
-    return { pass: files.length > 0, files_changed: files.length };
+    }).trim();
+    return inside === "true";
   } catch {
-    // Not a git repo or no commits — check for untracked files
-    try {
-      const output = execSync("git status --porcelain", {
-        cwd: projectDir,
-        encoding: "utf-8",
-        timeout: 10_000,
-        stdio: ["pipe", "pipe", "pipe"],
-      });
-      const files = output.trim().split("\n").filter(Boolean);
-      return { pass: files.length > 0, files_changed: files.length };
-    } catch {
-      return { pass: false, files_changed: 0 };
-    }
+    return false;
   }
+}
+
+function getProductChangedFiles(projectDir) {
+  const output = execSync("git status --porcelain=v1 --untracked-files=all", {
+    cwd: projectDir,
+    encoding: "utf-8",
+    timeout: 10_000,
+    stdio: ["pipe", "pipe", "pipe"],
+  });
+  return parseGitStatusFiles(output).filter(isEvidenceFile);
+}
+
+function withEvidenceFailure(base, reason) {
+  const remediation = {
+    not_git_repository: "Initialize git in the project root before task verification, or run verify --mode baseline for pre-task checks.",
+    no_product_changes: "No product file changes were detected. Generated output and Meridian metadata do not count as task evidence.",
+    git_status_failed: "Unable to read git status for evidence. Check the repository state and rerun verification.",
+  }[reason];
+  return { ...base, reason, remediation };
+}
+
+function parseGitStatusFiles(output) {
+  return output
+    .trim()
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => {
+      const pathPart = line.slice(3).trim();
+      const renamedPath = pathPart.includes(" -> ") ? pathPart.split(" -> ").pop() : pathPart;
+      return normalizeGitPath(renamedPath);
+    })
+    .filter(Boolean);
+}
+
+function normalizeGitPath(filePath) {
+  return filePath.replace(/^"|"$/g, "").replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+function isEvidenceFile(filePath) {
+  const normalized = normalizeGitPath(filePath);
+  return !IGNORED_EVIDENCE_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
 function saveVerdict(meridianDir, verdictResult) {

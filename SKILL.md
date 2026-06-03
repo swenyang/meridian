@@ -83,7 +83,7 @@ Before doing anything else, build a comprehensive understanding of the codebase:
 3. **Read existing tests** — understand what's already tested and the testing patterns used
 4. **Read existing docs** — README, CONTRIBUTING, architecture docs if any
 5. **Identify conventions** — naming patterns, file organization, import style, error handling patterns
-6. **Run existing tests** — `$HARNESS verify --dir $MERIDIAN_DIR` to establish a baseline (all tests should pass BEFORE you start)
+6. **Run existing tests** — `$HARNESS verify --dir $MERIDIAN_DIR --mode baseline` to establish a baseline (all tests should pass BEFORE you start; file-change evidence is informational in baseline mode)
 
 Store this context in memory:
 ```bash
@@ -844,6 +844,12 @@ $HARNESS memory-read --file completed_tasks --dir $MERIDIAN_DIR
 - `core`/`feature` tasks must have at least 1 `e2e` or `integration` criterion
 - If criteria need upgrading, use `plan-adjust` to update them before dispatching
 
+**Before dispatching execution**, verify task evidence can be attributed to this task:
+```bash
+$HARNESS preflight --dir $MERIDIAN_DIR
+```
+This is a hard gate. If `pass` is false, do **not** dispatch execution. `reason: "not_git_repository"` means task-specific file evidence cannot be collected; initialize Git and establish a clean baseline first. `reason: "dirty_worktree"` means there are already product changes, so post-task git status would mix previous work with this task; commit, stash, or revert those changes before proceeding.
+
 ##### Refine the Task Brief
 
 Read the existing brief from `.meridian/tasks/T{n}/brief.md` and update it with:
@@ -884,18 +890,19 @@ The subagent will:
 
 #### 5d. Dispatch Verification Layer
 
-After the execution subagent completes, the strategic layer dispatches the **verification layer** — a single subagent that owns ALL acceptance verification. The strategic layer does NOT participate in verification; it only reads the final verdict.
+After the execution subagent completes, the strategic layer dispatches the **verification layer** — a single subagent that owns ALL acceptance verification. The strategic layer does NOT participate in acceptance verification; it only reads the final verdict.
 
 **IRON LAW: Evidence-Gated Completion.** Never trust the execution subagent's self-reported results. "Agent says tests pass" is NOT evidence — only fresh results from the verification layer count.
 
 **Architecture — who does what:**
 - **Execution subagent** (LLM) — writes production code + its own tests. These tests are **self-checks only** — they prove the execution layer thinks its code works. They are NOT acceptance tests.
 - **Verification subagent** (LLM) — independent agent in isolated context. Owns ALL acceptance verification:
-  1. Invokes `$HARNESS verify` for baseline checks (execution's tests, lint, build, eval)
+  1. Invokes `$HARNESS verify --mode task` for baseline checks (execution's tests, lint, build, eval) plus required file-change evidence
   2. **Independently writes its own E2E and real-data verification scripts** based on acceptance criteria
   3. Runs those scripts and records results
   4. Reviews code for spec compliance and quality
 - **Strategic layer** (LLM) — orchestrator. Reads verification subagent's verdict. Decides: PASS → next task, FAIL → retry/escalate. Never verifies anything itself.
+- **Preflight ownership** — strategic layer runs `$HARNESS preflight` before dispatching execution so Git evidence collected after the task is attributable to that task, not pre-existing workspace changes.
 
 **Why verification must write its own tests:**
 The acceptance criteria define WHAT must be true (e.g., "parsing SEC 10-K filing produces 12-column table"). The execution subagent may have written a test for this — but that test was written by the same agent that wrote the code. It may test only the happy path, use trivial assertions, or silently skip the hard cases. The verification layer must independently write its own verification script that exercises the actual product against real data, with assertions it designed itself.
@@ -922,10 +929,10 @@ The verification subagent performs three phases in order:
 
 The subagent runs the harness for baseline checks — execution's own tests, lint, build:
 ```bash
-$HARNESS verify --dir $MERIDIAN_DIR
+$HARNESS verify --dir $MERIDIAN_DIR --mode task
 ```
 
-This verifies that the execution layer's self-checks pass (tests, lint, build, git evidence, eval targets). These are necessary but not sufficient — passing execution's own tests only proves the code does what the coder intended, not what the product should do.
+This verifies that the execution layer's self-checks pass (tests, lint, build, git evidence, eval targets). In task mode, `checks.evidence.required` is true and product file changes must be visible through git status. This assumes `$HARNESS preflight` passed before execution; without that clean Git baseline, post-task status is not task-specific evidence. These are necessary but not sufficient — passing execution's own tests only proves the code does what the coder intended, not what the product should do.
 
 If baseline fails, the subagent reports FAIL immediately. **Do not proceed to Phase 2.**
 
@@ -1282,7 +1289,7 @@ When all tasks are done:
 | Use free-text acceptance criteria | "tests pass" is vague, unmeasurable, and lets the agent self-judge | Use structured criteria objects with `type`, `description`, `expected`, `steps` — harness validates schema |
 | Skip e2e criteria for "obvious" tasks | Without e2e verification, code that compiles ≠ code that works | Every `core`/`feature` task needs at least 1 `e2e` or `integration` criterion |
 | Use self-generated toy data for validation | 3-row synthetic tables prove nothing about real-world behavior | Use `real_data` criteria with `data_source` pointing to public datasets |
-| Say "Done!" before running verify | Claiming completion without evidence is dishonesty, not efficiency | Run `$HARNESS verify`, read full output, THEN claim done |
+| Say "Done!" before running verify | Claiming completion without evidence is dishonesty, not efficiency | Run `$HARNESS verify --mode task`, read full output, THEN claim done |
 | Trust execution subagent's "success" report | The implementer may be optimistic, incomplete, or wrong | Verify independently: read actual code, re-run tests, check VCS diff |
 | "Should work now" / "I'm confident" | Confidence ≠ evidence. "Should" means you didn't run it | Run the verification command. Read the output. Only then claim |
 | Run code quality review before spec compliance | Beautiful code that builds the wrong thing is still wrong | Stage 1 (spec compliance) must pass BEFORE Stage 2 (code quality) starts |
@@ -1296,7 +1303,7 @@ When all tasks are done:
 
 | Red Flag Phrase | What It Really Means | Required Action |
 |---|---|---|
-| "Should work now" | Haven't verified | Run `$HARNESS verify` and read output |
+| "Should work now" | Haven't verified | Run `$HARNESS verify --mode task` and read output |
 | "I'm confident this is correct" | Confidence is not evidence | Execute the verification command |
 | "Tests should pass" | Haven't run them | Run them and paste stdout |
 | "Minor change, no test needed" | Minor changes cause regressions | Run full test suite |
@@ -1664,7 +1671,7 @@ Use this in Step 5d. Dispatch as a single independent subagent that owns ALL acc
 >
 > Run the harness to verify execution's own self-checks pass:
 > ```bash
-> {harness_command} verify --dir {meridian_dir}
+> {harness_command} verify --dir {meridian_dir} --mode task
 > ```
 >
 > Read the full JSON output. Check:
@@ -1673,7 +1680,7 @@ Use this in Step 5d. Dispatch as a single independent subagent that owns ALL acc
 > - `checks.lint`: did lint pass?
 > - `checks.build`: did build pass?
 > - `checks.eval`: did eval targets meet thresholds?
-> - `checks.evidence`: were files actually changed?
+> - `checks.evidence`: were product files actually changed? In task mode this must have `required: true` and `pass: true`.
 >
 > These are necessary but NOT sufficient. Execution's tests passing only proves the code does what the coder intended — not what the product should do.
 >
